@@ -1,0 +1,37 @@
+{
+  "name": "aihub-mcp",
+  "version": "0.0.1",
+  "private": true,
+  "description": "MCP server for the aihubmax (FoxAPI) media generation API — https://docs.aihubmax.com",
+  "type": "module",
+  "bin": {
+    "aihub-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "catalog/catalog.zh.json"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build-catalog": "tsx scripts/build-catalog.ts",
+    "build-mapping": "tsx scripts/build-mapping.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "verify": "tsx scripts/verify-e2e.ts",
+    "typecheck": "tsc --noEmit",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  }
+}

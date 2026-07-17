@@ -1,0 +1,802 @@
+{
+  "generatedAt": "2026-07-16T20:13:29.910Z",
+  "baseUrl": "https://api.aihubmax.com",
+  "liveModelCount": 295,
+  "catalogGenerationModelCount": 117,
+  "summary": {
+    "exactMatches": 32,
+    "familyMatches": 17,
+    "catalogOnly": 85
+  },
+  "exact": [
+    {
+      "live": "cohere-transcribe",
+      "catalogModel": "cohere-transcribe",
+      "catalogFile": "cohere-transcribe.json",
+      "mediaType": "audio",
+      "matchType": "exact"
+    },
+    {
+      "live": "doc2x-v3",
+      "catalogModel": "doc2x-v3",
+      "catalogFile": "doc2x-v3.json",
+      "mediaType": "document",
+      "matchType": "exact"
+    },
+    {
+      "live": "gemini-3-pro-image-preview",
+      "catalogModel": "gemini-3-pro-image-preview",
+      "catalogFile": "gemini-3-pro-image-preview.json",
+      "mediaType": "image",
+      "matchType": "exact"
+    },
+    {
+      "live": "gemini-3.1-flash-image-preview",
+      "catalogModel": "gemini-3.1-flash-image-preview",
+      "catalogFile": "gemini-3.1-flash-image-preview.json",
+      "mediaType": "image",
+      "matchType": "exact"
+    },
+    {
+      "live": "gpt-4o-image",
+      "catalogModel": "gpt-4o-image",
+      "catalogFile": "gpt-4o-image-generation.json",
+      "mediaType": "image",
+      "matchType": "exact"
+    },
+    {
+      "live": "gpt-image-1",
+      "catalogModel": "gpt-image-1",
+      "catalogFile": "gpt-image-1-image-generation.json",
+      "mediaType": "image",
+      "matchType": "exact"
+    },
+    {
+      "live": "gpt-image-1.5",
+      "catalogModel": "gpt-image-1.5",
+      "catalogFile": "gpt-image-1.5-image-generation.json",
+      "mediaType": "image",
+      "matchType": "exact"
+    },
+    {
+      "live": "gpt-image-2",
+      "catalogModel": "gpt-image-2",
+      "catalogFile": "gpt-image-2.json",
+      "mediaType": "image",
+      "matchType": "exact"
+    },
+    {
+      "live": "kling-o3-image-to-video",
+      "catalogModel": "kling-o3-image-to-video",
+      "catalogFile": "kling-o3-image-to-video.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "kling-o3-reference-to-video",
+      "catalogModel": "kling-o3-reference-to-video",
+      "catalogFile": "kling-o3-reference-to-video.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "kling-o3-text-to-video",
+      "catalogModel": "kling-o3-text-to-video",
+      "catalogFile": "kling-o3-text-to-video.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "kling-o3-video-to-video-edit",
+      "catalogModel": "kling-o3-video-to-video-edit",
+      "catalogFile": "kling-o3-video-to-video-edit.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "kling-o3-video-to-video-reference",
+      "catalogModel": "kling-o3-video-to-video-reference",
+      "catalogFile": "kling-o3-video-to-video-reference.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "kling-v2-6-video",
+      "catalogModel": "kling-v2-6-video",
+      "catalogFile": "kling-v2-6-video.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "kling-v3-image-to-video",
+      "catalogModel": "kling-v3-image-to-video",
+      "catalogFile": "kling-v3-image-to-video.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "kling-v3-motion-control",
+      "catalogModel": "kling-v3-motion-control",
+      "catalogFile": "kling-v3-motion-control.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "kling-v3-text-to-video",
+      "catalogModel": "kling-v3-text-to-video",
+      "catalogFile": "kling-v3-text-to-video.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "lipsync-2",
+      "catalogModel": "lipsync-2",
+      "catalogFile": "lipsync-2.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "lyria-3",
+      "catalogModel": "lyria-3",
+      "catalogFile": "lyria.json",
+      "mediaType": "audio",
+      "matchType": "exact"
+    },
+    {
+      "live": "minimax-music-v2.6",
+      "catalogModel": "minimax-music-v2.6",
+      "catalogFile": "minimax-music.json",
+      "mediaType": "audio",
+      "matchType": "exact"
+    },
+    {
+      "live": "omnihuman-1.5",
+      "catalogModel": "omnihuman-1.5",
+      "catalogFile": "omnihuman-1.5.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "paraformer-v2",
+      "catalogModel": "paraformer-v2",
+      "catalogFile": "paraformer-v2.json",
+      "mediaType": "audio",
+      "matchType": "exact"
+    },
+    {
+      "live": "sora-2",
+      "catalogModel": "sora-2",
+      "catalogFile": "sora-2.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "sora-2-pro",
+      "catalogModel": "sora-2-pro",
+      "catalogFile": "sora2pro-video-generate.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "speech-2.8-hd",
+      "catalogModel": "speech-2.8-hd",
+      "catalogFile": "speech-2.8.json",
+      "mediaType": "audio",
+      "matchType": "exact"
+    },
+    {
+      "live": "topaz-upscale-video",
+      "catalogModel": "topaz-upscale-video",
+      "catalogFile": "topaz-upscale-video.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "veo-3.1",
+      "catalogModel": "veo-3.1",
+      "catalogFile": "veo-3.1.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "veo-3.1-extend",
+      "catalogModel": "veo-3.1-extend",
+      "catalogFile": "veo-3.1-extend.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "veo-3.1-first-last-frame-to-video",
+      "catalogModel": "veo-3.1-first-last-frame-to-video",
+      "catalogFile": "veo-3.1-first-last-frame-to-video.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "veo-3.1-image-to-video",
+      "catalogModel": "veo-3.1-image-to-video",
+      "catalogFile": "veo-3.1-image-to-video.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "veo-3.1-reference-to-video",
+      "catalogModel": "veo-3.1-reference-to-video",
+      "catalogFile": "veo-3.1-reference-to-video.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    },
+    {
+      "live": "veo-3.1-text-to-video",
+      "catalogModel": "veo-3.1-text-to-video",
+      "catalogFile": "veo-3.1-text-to-video.json",
+      "mediaType": "video",
+      "matchType": "exact"
+    }
+  ],
+  "family": [
+    {
+      "live": "fabric-1.0-text[480p]",
+      "catalogModel": "fabric-1.0-text",
+      "catalogFile": "fabric-1.0-text.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"fabric-1.0-text\"，变体 [480p] 的参数映射需与网关侧核对"
+    },
+    {
+      "live": "fabric-1.0-text[720p]",
+      "catalogModel": "fabric-1.0-text",
+      "catalogFile": "fabric-1.0-text.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"fabric-1.0-text\"，变体 [720p] 的参数映射需与网关侧核对"
+    },
+    {
+      "live": "fabric-1.0[480p]",
+      "catalogModel": "fabric-1.0",
+      "catalogFile": "fabric-1.0.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"fabric-1.0\"，变体 [480p] 的参数映射需与网关侧核对"
+    },
+    {
+      "live": "fabric-1.0[720p]",
+      "catalogModel": "fabric-1.0",
+      "catalogFile": "fabric-1.0.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"fabric-1.0\"，变体 [720p] 的参数映射需与网关侧核对"
+    },
+    {
+      "live": "google/veo-3.1",
+      "catalogModel": "veo-3.1",
+      "catalogFile": "veo-3.1.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"veo-3.1\""
+    },
+    {
+      "live": "google/veo-3.1[audio]",
+      "catalogModel": "veo-3.1",
+      "catalogFile": "veo-3.1.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"veo-3.1\"，变体 [audio] 的参数映射需与网关侧核对"
+    },
+    {
+      "live": "google/veo-3.1[fast]",
+      "catalogModel": "veo-3.1",
+      "catalogFile": "veo-3.1.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"veo-3.1\"，变体 [fast] 的参数映射需与网关侧核对"
+    },
+    {
+      "live": "google/veo-3.1[fast|audio]",
+      "catalogModel": "veo-3.1",
+      "catalogFile": "veo-3.1.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"veo-3.1\"，变体 [fast|audio] 的参数映射需与网关侧核对"
+    },
+    {
+      "live": "google/veo-3.1[reference-to-video]",
+      "catalogModel": "veo-3.1",
+      "catalogFile": "veo-3.1.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"veo-3.1\"，变体 [reference-to-video] 的参数映射需与网关侧核对"
+    },
+    {
+      "live": "google/veo-3.1[reference-to-video|audio]",
+      "catalogModel": "veo-3.1",
+      "catalogFile": "veo-3.1.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"veo-3.1\"，变体 [reference-to-video|audio] 的参数映射需与网关侧核对"
+    },
+    {
+      "live": "kling-v3-motion-control[pro]",
+      "catalogModel": "kling-v3-motion-control",
+      "catalogFile": "kling-v3-motion-control.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"kling-v3-motion-control\"，变体 [pro] 的参数映射需与网关侧核对"
+    },
+    {
+      "live": "openai/sora-2",
+      "catalogModel": "sora-2",
+      "catalogFile": "sora-2.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"sora-2\""
+    },
+    {
+      "live": "openai/sora-2-pro",
+      "catalogModel": "sora-2-pro",
+      "catalogFile": "sora2pro-video-generate.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"sora-2-pro\""
+    },
+    {
+      "live": "veo-3.1-extend[audio]",
+      "catalogModel": "veo-3.1-extend",
+      "catalogFile": "veo-3.1-extend.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"veo-3.1-extend\"，变体 [audio] 的参数映射需与网关侧核对"
+    },
+    {
+      "live": "veo-3.1[4k]",
+      "catalogModel": "veo-3.1",
+      "catalogFile": "veo-3.1.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"veo-3.1\"，变体 [4k] 的参数映射需与网关侧核对"
+    },
+    {
+      "live": "veo-3.1[4k|audio]",
+      "catalogModel": "veo-3.1",
+      "catalogFile": "veo-3.1.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"veo-3.1\"，变体 [4k|audio] 的参数映射需与网关侧核对"
+    },
+    {
+      "live": "veo-3.1[audio]",
+      "catalogModel": "veo-3.1",
+      "catalogFile": "veo-3.1.json",
+      "mediaType": "video",
+      "matchType": "family",
+      "note": "归一化到 catalog family \"veo-3.1\"，变体 [audio] 的参数映射需与网关侧核对"
+    }
+  ],
+  "catalogOnly": [
+    {
+      "model": "creatify-aurora",
+      "file": "creatify-aurora.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "fabric-1.0-text",
+      "file": "fabric-1.0-text.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "fabric-1.0",
+      "file": "fabric-1.0.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "gemini-3.1-flash-image-preview-dev",
+      "file": "gemini-3.1-flash-image-preview-dev.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "gemini-3.1-flash-tts",
+      "file": "gemini-3.1-flash-tts.json",
+      "mediaType": "audio"
+    },
+    {
+      "model": "gpt-image-1.5-lite",
+      "file": "gpt-image-1.5-lite-image-generation.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "grok-imagine-edit-video",
+      "file": "grok-imagine-edit-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "grok-imagine-image-to-video",
+      "file": "grok-imagine-image-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "grok-imagine-image",
+      "file": "grok-imagine-image.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "grok-imagine-reference-to-video",
+      "file": "grok-imagine-reference-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "grok-imagine-text-to-video",
+      "file": "grok-imagine-text-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "grok-imagine-video-extension",
+      "file": "grok-imagine-video-extension.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "MiniMax-Hailuo-02",
+      "file": "hailuo-02-video-generate.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "MiniMax-Hailuo-2.3-Fast",
+      "file": "hailuo-2-3-fast-video-generate.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "MiniMax-Hailuo-2.3",
+      "file": "hailuo-2-3-video-generate.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "happyhorse-1.0-image-to-video",
+      "file": "happyhorse-1.0-image-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "happyhorse-1.0-reference-to-video",
+      "file": "happyhorse-1.0-reference-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "happyhorse-1.0-text-to-video",
+      "file": "happyhorse-1.0-text-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "happyhorse-1.0-video-edit",
+      "file": "happyhorse-1.0-video-edit.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "heygen-video-agent",
+      "file": "heygen-video-agent.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "kling-custom-element",
+      "file": "kling-custom-element.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "kling-o1-i2v",
+      "file": "kling-o1-image-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "kling-o1-edit-fast",
+      "file": "kling-o1-video-edit-fast.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "kling-o1-edit",
+      "file": "kling-o1-video-edit.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "kling-o3-edit",
+      "file": "kling-o3-video-edit.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "kling-video-create-voice",
+      "file": "kling-video-create-voice.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "live-avatar",
+      "file": "live-avatar.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "minimax-voice-clone",
+      "file": "minimax-voice-clone.json",
+      "mediaType": "audio"
+    },
+    {
+      "model": "nanobanana",
+      "file": "nanobanana-image-generate.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "nanobanana-pro-beta",
+      "file": "nanobanana-pro-beta-image-generate.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "nano-banana-2-beta",
+      "file": "nanobanana2-beta-image-generate.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "patina-material-extract",
+      "file": "patina-material-extract.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "patina-material",
+      "file": "patina-material.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "patina-pbr-maps",
+      "file": "patina-pbr-maps.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "phota-create-profile",
+      "file": "phota-create-profile.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "phota-image-edit",
+      "file": "phota-image-edit.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "phota-image-enhance",
+      "file": "phota-image-enhance.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "phota-image",
+      "file": "phota-image.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "pixverse-c1-image-to-video",
+      "file": "pixverse-c1-image-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "pixverse-c1-reference-to-video",
+      "file": "pixverse-c1-reference-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "pixverse-c1-text-to-video",
+      "file": "pixverse-c1-text-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "pixverse-c1-transition",
+      "file": "pixverse-c1-transition.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "pixverse-v6-extend",
+      "file": "pixverse-v6-extend.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "pixverse-v6-image-to-video",
+      "file": "pixverse-v6-image-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "pixverse-v6-text-to-video",
+      "file": "pixverse-v6-text-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "pixverse-v6-transition",
+      "file": "pixverse-v6-transition.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "qwen-image-edit-plus",
+      "file": "qwen-image-edit-plus.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "qwen-image-edit",
+      "file": "qwen-image-edit.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "scribe-v2",
+      "file": "scribe-v2.json",
+      "mediaType": "audio"
+    },
+    {
+      "model": "seedance-1.0-pro-fast",
+      "file": "seedance-1.0-pro-fast-video-generate.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "seedance-1.5-pro",
+      "file": "seedance-1.5-pro-video-generate.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "seedance-2.0-image-to-video",
+      "file": "seedance-2.0-image-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "seedance-2.0-reference-to-video",
+      "file": "seedance-2.0-reference-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "seedance-2.0-text-to-video",
+      "file": "seedance-2.0-text-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "doubao-seedream-4.0",
+      "file": "seedream-4.0-image-generate.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "doubao-seedream-4.5",
+      "file": "seedream-4.5-image-generate.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "doubao-seedream-5.0-lite",
+      "file": "seedream-5.0-lite-image-generate.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "sora-2-beta-max",
+      "file": "sora-2-beta-max-video-generate.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "sora-2-character",
+      "file": "sora-2-character.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "sora-2-pro-remix",
+      "file": "sora-2-pro-remix.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "suno-v4",
+      "file": "suno-music-generation.json",
+      "mediaType": "audio"
+    },
+    {
+      "model": "veed-subtitles",
+      "file": "veed-subtitles.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "veo3.1-fast-lite",
+      "file": "veo3.1-fast-video-generate.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "veo3.1-pro-lite",
+      "file": "veo3.1-pro-video-generate.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "vidu-q3-image-to-video",
+      "file": "vidu-q3-image-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "vidu-q3-reference-to-video",
+      "file": "vidu-q3-reference-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "vidu-q3-text-to-video",
+      "file": "vidu-q3-text-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "vidu-q3-turbo-image-to-video",
+      "file": "vidu-q3-turbo-image-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "vidu-q3-turbo-text-to-video",
+      "file": "vidu-q3-turbo-text-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "voice-clone",
+      "file": "voice-clone.json",
+      "mediaType": "audio"
+    },
+    {
+      "model": "wan-2.7-image-to-video",
+      "file": "wan-2.7-image-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "wan-2.7-image",
+      "file": "wan-2.7-image.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "wan-2.7-reference-to-video",
+      "file": "wan-2.7-reference-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "wan-2.7-text-to-video",
+      "file": "wan-2.7-text-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "wan-2.7-video-edit",
+      "file": "wan-2.7-video-edit.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "wan2.5-image-to-image",
+      "file": "wan2.5-image-to-image.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "wan2.5-i2v",
+      "file": "wan2.5-image-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "wan2.5-text-to-image",
+      "file": "wan2.5-text-to-image.json",
+      "mediaType": "image"
+    },
+    {
+      "model": "wan2.5-t2v",
+      "file": "wan2.5-text-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "wan2.6-i2v-flash",
+      "file": "wan2.6-image-to-video-flash.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "wan2.6-i2v",
+      "file": "wan2.6-image-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "wan2.6-ref-flash",
+      "file": "wan2.6-reference-video-flash.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "wan2.6-ref",
+      "file": "wan2.6-reference-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "wan2.6-t2v",
+      "file": "wan2.6-text-to-video.json",
+      "mediaType": "video"
+    },
+    {
+      "model": "z-image-turbo",
+      "file": "z-image-turbo-image-generate.json",
+      "mediaType": "image"
+    }
+  ]
+}
