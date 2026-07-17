@@ -31,14 +31,14 @@ MCP server for the AihubMax media generation API — <https://docs.aihubmax.com>
   "mcpServers": {
     "aihub": {
       "command": "npx",
-      "args": ["-y", "github:OWNER/aihub-mcp"],
+      "args": ["-y", "github:cookaihq/aihub-mcp"],
       "env": { "AIHUBMAX_API_KEY": "sk-你的key" }
     }
   }
 }
 ```
 
-> 当前走 GitHub 分发（npm 发布后再改为 `"aihub-mcp"`）。把 `OWNER` 换成实际 GitHub 组织/用户名。首次拉取时 `npx` 会自动执行 `prepare` 编译。
+> 当前走 GitHub 分发（npm 发布后再改为 `"aihub-mcp"`）。仓库 `github:cookaihq/aihub-mcp`；首次拉取时 `npx` 会自动执行 `prepare` 编译。
 > 本地开发也可把 `command`/`args` 指向 `node /绝对路径/dist/index.js`，或 `AIHUBMAX_API_KEY=sk-... npm run dev`。
 
 Key 也可用 `--api-key sk-...` 传入；base URL 可用 `AIHUBMAX_BASE_URL` 覆盖。
