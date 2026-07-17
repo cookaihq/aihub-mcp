@@ -543,4 +543,106 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
       }
     },
   );
+
+  // 10. analyze_media —— 媒体理解（LLM 异步族，走 /v1/llm/generations，独立 llm-router 模型注册表）
+  server.registerTool(
+    "analyze_media",
+    {
+      title: "媒体理解（图/视频/音频 → 文本）",
+      description:
+        "用多模态 LLM 分析媒体内容并输出文本（宿主模型自身无法看视频/听音频，此为能力补充）。三选一提供 image_urls / video_urls / audio_url（协议自动判别）。模型来自 llm-router 注册表（与生成类不同），用支持对应能力的模型（如 gemini-3.1-pro-preview 支持 vision/video/audio）；model 无效时错误会列出可用模型。注意：同步阻塞调用，视频/思考模型可能较慢，若客户端有工具超时限制请留意。",
+      inputSchema: {
+        model: z.string().describe("llm-router 模型 id，如 gemini-3.1-pro-preview、claude-sonnet-4-6"),
+        prompt: z.string().describe("对媒体的分析指令，如“描述这段视频”“转写这段音频”"),
+        image_urls: z.array(z.string()).optional().describe("图片 URL 数组（1–10 张）"),
+        video_urls: z.array(z.string()).optional().describe("视频 URL 数组（1–10 个）"),
+        audio_url: z.string().optional().describe("单个音频 URL"),
+        system_prompt: z.string().optional().describe("系统指令"),
+        max_tokens: z.number().int().positive().optional(),
+        temperature: z.number().min(0).max(2).optional(),
+      },
+    },
+    async ({ model, prompt, image_urls, video_urls, audio_url, system_prompt, max_tokens, temperature }) => {
+      try {
+        const media = [image_urls?.length ? "image" : null, video_urls?.length ? "video" : null, audio_url ? "audio" : null].filter(Boolean);
+        if (media.length !== 1)
+          return errorResult(new Error("image_urls / video_urls / audio_url 必须且只能提供一个。"));
+        const body: Record<string, unknown> = { model, prompt, sync: true };
+        if (image_urls?.length) body.image_urls = image_urls;
+        if (video_urls?.length) body.video_urls = video_urls;
+        if (audio_url) body.audio_url = audio_url;
+        if (system_prompt) body.system_prompt = system_prompt;
+        if (max_tokens !== undefined) body.max_tokens = max_tokens;
+        if (temperature !== undefined) body.temperature = temperature;
+        const r = await client.llmGenerate(body);
+        return json({ text: r.choices?.[0]?.message?.content ?? null, model: r.model, usage: r.usage });
+      } catch (e) {
+        return errorResult(e);
+      }
+    },
+  );
+
+  // 11. ask_model —— 同步 LLM 对话（二次意见 / 免费模型试用，非主对话通道）
+  server.registerTool(
+    "ask_model",
+    {
+      title: "问另一个模型（二次意见）",
+      description:
+        "同步调用一个 LLM 做对话，定位为“向另一个模型征询二次意见 / 试用免费模型”，不是主对话通道、不支持流式。model 用标准 chat 模型 id（如 gpt-5-nano、gemini-3.5-flash、deepseek-chat）。传 prompt（单轮）或 messages（多轮，OpenAI 格式）。",
+      inputSchema: {
+        model: z.string().describe("chat 模型 id"),
+        prompt: z.string().optional().describe("单轮用户输入（与 messages 二选一）"),
+        messages: z.array(z.object({ role: z.string(), content: z.string() })).optional()
+          .describe("多轮消息（OpenAI 格式，与 prompt 二选一）"),
+        system: z.string().optional().describe("系统指令（prompt 模式下前置）"),
+        max_tokens: z.number().int().positive().optional(),
+        temperature: z.number().min(0).max(2).optional(),
+      },
+    },
+    async ({ model, prompt, messages, system, max_tokens, temperature }) => {
+      try {
+        if ((prompt ? 1 : 0) + (messages?.length ? 1 : 0) !== 1)
+          return errorResult(new Error("prompt / messages 必须且只能提供一个。"));
+        const msgs = messages ?? [
+          ...(system ? [{ role: "system", content: system }] : []),
+          { role: "user", content: prompt! },
+        ];
+        const body: Record<string, unknown> = { model, messages: msgs };
+        if (max_tokens !== undefined) body.max_tokens = max_tokens;
+        if (temperature !== undefined) body.temperature = temperature;
+        const r = await client.chatCompletion(body);
+        return json({ text: r.choices?.[0]?.message?.content ?? null, model: r.model, finish_reason: r.choices?.[0]?.finish_reason, usage: r.usage });
+      } catch (e) {
+        return errorResult(e);
+      }
+    },
+  );
+
+  // 12. create_embeddings —— 文本嵌入
+  server.registerTool(
+    "create_embeddings",
+    {
+      title: "文本嵌入",
+      description:
+        "生成文本向量嵌入（OpenAI 兼容）。model 用嵌入模型 id（如 text-embedding-3-small、jina-embeddings-v3）。input 为字符串或字符串数组。",
+      inputSchema: {
+        model: z.string().describe("嵌入模型 id"),
+        input: z.union([z.string(), z.array(z.string())]).describe("待嵌入文本，单条或数组"),
+      },
+    },
+    async ({ model, input }) => {
+      try {
+        const r = await client.createEmbeddings({ model, input });
+        return json({
+          model: r.model,
+          count: r.data?.length ?? 0,
+          dimensions: r.data?.[0]?.embedding?.length ?? null,
+          usage: r.usage,
+          embeddings: r.data?.map((d) => ({ index: d.index, embedding: d.embedding })),
+        });
+      } catch (e) {
+        return errorResult(e);
+      }
+    },
+  );
 }

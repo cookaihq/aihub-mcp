@@ -4,7 +4,7 @@ MCP server for the AihubMax media generation API — <https://docs.aihubmax.com>
 
 把 AihubMax（`api.aihubmax.com`）的媒体生成能力（图像 / 视频 / 音频 / 文档 + 异步任务体系）封装成 Agent 友好的 MCP server。目标：Agent 拿到一个 `sk-` key 后，能在对话里顺畅地发现模型、生成媒体、拿回结果。
 
-## 工具（11 个）
+## 工具（14 个）
 
 | 工具 | 作用 |
 |---|---|
@@ -16,8 +16,9 @@ MCP server for the AihubMax media generation API — <https://docs.aihubmax.com>
 | `download_asset` | 把任务产物或 URL 下载到本地磁盘（视频等大文件落盘） |
 | `get_credits` | 查询当前 Key 的总额度 / 已用 / 剩余 |
 | `upload_file` | 本地文件 / 远程 URL / base64 → 可引用的 URL（i2v 等场景刚需） |
-
-> 规划中（M2）：`analyze_media`（媒体理解）/ `ask_model`（二次意见）/ `create_embeddings`。
+| `analyze_media` | 多模态 LLM 分析图/视频/音频 → 文本（宿主模型看不了视频/听不了音频时补位） |
+| `ask_model` | 同步问另一个 LLM（二次意见 / 试用），非主对话通道 |
+| `create_embeddings` | 文本向量嵌入（OpenAI 兼容） |
 
 模型 id 有两套命名（文档 spec vs 线上可调用），对应关系见 [docs/model-mapping.md](docs/model-mapping.md)（由 `scripts/build-mapping.ts` 生成）。
 
@@ -55,6 +56,7 @@ AIHUBMAX_API_KEY=sk-... npm run verify   # 端到端打真实 API 验收（会�
 ## 进度
 
 - [x] **M0** 目录管道：`catalog/catalog.zh.json`（155 端点 / 128 模型 / 每模型完整参数 Schema）
-- [x] **M1** 核心 server：9 工具 + stdio + 真实定价（`/api/pricing`），实测通过
-- [~] **M2** 进行中：补 `analyze_media` / `ask_model` / `create_embeddings` / `wait_for_task` / `download_asset` / 图像内容块；文档站集成页、npm 发布、MCP registry 待授权
+- [x] **M1** 核心 server：11 工具 + stdio + 真实定价（`/api/pricing`）+ 产物三层交付，实测通过
+- [x] **M2 能力补齐**：`analyze_media` / `ask_model` / `create_embeddings` 已实现（14 工具全部实测通过）
+- [ ] **M2 发布**：文档站集成页、npm 发布、MCP registry（待授权/确认）
 - [ ] **M3** 托管模式（Streamable HTTP）

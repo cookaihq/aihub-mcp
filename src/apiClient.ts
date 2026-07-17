@@ -262,4 +262,40 @@ export class AihubmaxClient {
       raw: { subscription: sub, usage },
     };
   }
+
+  /** 同步 LLM 对话（OpenAI 兼容）。model 来自 /v1/models 的 chat 模型。 */
+  chatCompletion(body: Record<string, unknown>): Promise<ChatCompletion> {
+    return this.request<ChatCompletion>("POST", "/v1/chat/completions", body);
+  }
+
+  /** 文本嵌入（OpenAI 兼容）。 */
+  createEmbeddings(body: Record<string, unknown>): Promise<{
+    data?: { embedding: number[]; index: number }[];
+    model?: string;
+    usage?: Record<string, unknown>;
+  }> {
+    return this.request("POST", "/v1/embeddings", body);
+  }
+
+  /** LLM 异步理解入口（协议由请求体字段自动判别）。sync=true 时直接返回 ChatCompletion。 */
+  llmGenerate(body: Record<string, unknown>): Promise<ChatCompletion & SubmitResponse> {
+    return this.request("POST", "/v1/llm/generations", body);
+  }
+
+  /** llm-router 可用模型（独立于 /v1/models，含能力标签 text/vision/video/audio/file）。 */
+  async listLlmModels(): Promise<{ id: string; capabilities?: string[] }[]> {
+    const j = await this.request<{ data?: { id: string; capabilities?: string[] }[] }>(
+      "GET",
+      "/v1/configs/llm_generations_models",
+    );
+    return j.data ?? [];
+  }
+}
+
+export interface ChatCompletion {
+  id?: string;
+  model?: string;
+  choices?: { index: number; message?: { role: string; content: string }; finish_reason?: string }[];
+  usage?: Record<string, unknown>;
+  [k: string]: unknown;
 }
