@@ -263,12 +263,7 @@ export class AihubmaxClient {
     };
   }
 
-  /** 同步 LLM 对话（OpenAI 兼容）。model 来自 /v1/models 的 chat 模型。 */
-  chatCompletion(body: Record<string, unknown>): Promise<ChatCompletion> {
-    return this.request<ChatCompletion>("POST", "/v1/chat/completions", body);
-  }
-
-  /** 文本嵌入（OpenAI 兼容）。 */
+  /** 文本嵌入（OpenAI 兼容，同步秒回，无异步任务模式）。 */
   createEmbeddings(body: Record<string, unknown>): Promise<{
     data?: { embedding: number[]; index: number }[];
     model?: string;
@@ -277,9 +272,19 @@ export class AihubmaxClient {
     return this.request("POST", "/v1/embeddings", body);
   }
 
-  /** LLM 异步理解入口（协议由请求体字段自动判别）。sync=true 时直接返回 ChatCompletion。 */
-  llmGenerate(body: Record<string, unknown>): Promise<ChatCompletion & SubmitResponse> {
-    return this.request("POST", "/v1/llm/generations", body);
+  /**
+   * LLM 异步生成/理解入口（协议由请求体字段自动判别：prompt=text、image_urls=vision、
+   * video_urls=video、audio_url=audio、messages=custom）。异步提交，返回 task；
+   * 轮询 /v1/tasks/{id}，results[0] 为 OpenAI ChatCompletion。模型来自 llm-router 注册表。
+   */
+  llmGenerate(body: Record<string, unknown>): Promise<SubmitResponse> {
+    return this.request<SubmitResponse>("POST", "/v1/llm/generations", { ...body, sync: false });
+  }
+
+  /** 从 LLM 任务结果里取回助手文本（results[0] 是 ChatCompletion）。 */
+  static llmText(task: TaskResponse): { text: string | null; completion: ChatCompletion | null } {
+    const cc = (Array.isArray(task.results) ? task.results[0] : null) as ChatCompletion | null;
+    return { text: cc?.choices?.[0]?.message?.content ?? null, completion: cc };
   }
 
   /** llm-router 可用模型（独立于 /v1/models，含能力标签 text/vision/video/audio/file）。 */

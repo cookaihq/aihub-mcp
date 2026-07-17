@@ -110,6 +110,37 @@ async function submitAndMaybeWait(
   return taskResult(task, shaped, inlineImages);
 }
 
+/** 异步提交 LLM 生成/理解任务 + 可选等待。完成后抽取助手文本；超时返回 task_id。 */
+async function llmSubmitAndWait(
+  client: AihubmaxClient,
+  body: Record<string, unknown>,
+  waitSeconds: number,
+) {
+  const submit = await client.llmGenerate(body);
+  if (waitSeconds <= 0) {
+    return json({
+      task_id: submit.id,
+      status: submit.status,
+      model: submit.model,
+      note: `已异步提交。用 get_task("${submit.id}") 或 wait_for_task 取回结果（results[0] 为 ChatCompletion）。`,
+    });
+  }
+  const task = await client.pollTask(submit.id, waitSeconds);
+  if (task.status === "completed") {
+    const { text, completion } = AihubmaxClient.llmText(task);
+    return json({ task_id: task.id, status: task.status, model: task.model, text, usage: completion?.usage });
+  }
+  if (task.status === "failed") {
+    return json({ task_id: task.id, status: task.status, error: task.error });
+  }
+  return json({
+    task_id: task.id,
+    status: task.status,
+    progress: task.progress ?? 0,
+    note: `等待 ${waitSeconds}s 仍未完成，用 get_task("${task.id}") 或 wait_for_task 继续取回结果。`,
+  });
+}
+
 function shapeTask(t: SubmitResponse | TaskResponse) {
   return {
     task_id: t.id,
@@ -550,7 +581,7 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
     {
       title: "媒体理解（图/视频/音频 → 文本）",
       description:
-        "用多模态 LLM 分析媒体内容并输出文本（宿主模型自身无法看视频/听音频，此为能力补充）。三选一提供 image_urls / video_urls / audio_url（协议自动判别）。模型来自 llm-router 注册表（与生成类不同），用支持对应能力的模型（如 gemini-3.1-pro-preview 支持 vision/video/audio）；model 无效时错误会列出可用模型。注意：同步阻塞调用，视频/思考模型可能较慢，若客户端有工具超时限制请留意。",
+        "用多模态 LLM 分析媒体内容并输出文本（宿主模型自身无法看视频/听音频，此为能力补充）。三选一提供 image_urls / video_urls / audio_url（协议自动判别）。异步提交：默认等待 60s，短任务直接返回 text；长任务（视频/思考模型）超时返回 task_id，用 get_task / wait_for_task 取回。模型来自 llm-router 注册表（与生成类不同），用支持对应能力的模型（如 gemini-3.1-pro-preview 支持 vision/video/audio）；model 无效时错误会列出可用模型。",
       inputSchema: {
         model: z.string().describe("llm-router 模型 id，如 gemini-3.1-pro-preview、claude-sonnet-4-6"),
         prompt: z.string().describe("对媒体的分析指令，如“描述这段视频”“转写这段音频”"),
@@ -560,22 +591,23 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
         system_prompt: z.string().optional().describe("系统指令"),
         max_tokens: z.number().int().positive().optional(),
         temperature: z.number().min(0).max(2).optional(),
+        wait_seconds: z.number().int().min(0).max(600).optional()
+          .describe(`最长等待秒数，默认 ${DEFAULT_WAIT}，设 0 立即返回 task_id`),
       },
     },
-    async ({ model, prompt, image_urls, video_urls, audio_url, system_prompt, max_tokens, temperature }) => {
+    async ({ model, prompt, image_urls, video_urls, audio_url, system_prompt, max_tokens, temperature, wait_seconds }) => {
       try {
         const media = [image_urls?.length ? "image" : null, video_urls?.length ? "video" : null, audio_url ? "audio" : null].filter(Boolean);
         if (media.length !== 1)
           return errorResult(new Error("image_urls / video_urls / audio_url 必须且只能提供一个。"));
-        const body: Record<string, unknown> = { model, prompt, sync: true };
+        const body: Record<string, unknown> = { model, prompt };
         if (image_urls?.length) body.image_urls = image_urls;
         if (video_urls?.length) body.video_urls = video_urls;
         if (audio_url) body.audio_url = audio_url;
         if (system_prompt) body.system_prompt = system_prompt;
         if (max_tokens !== undefined) body.max_tokens = max_tokens;
         if (temperature !== undefined) body.temperature = temperature;
-        const r = await client.llmGenerate(body);
-        return json({ text: r.choices?.[0]?.message?.content ?? null, model: r.model, usage: r.usage });
+        return await llmSubmitAndWait(client, body, wait_seconds ?? DEFAULT_WAIT);
       } catch (e) {
         return errorResult(e);
       }
@@ -588,18 +620,20 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
     {
       title: "问另一个模型（二次意见）",
       description:
-        "同步调用一个 LLM 做对话，定位为“向另一个模型征询二次意见 / 试用免费模型”，不是主对话通道、不支持流式。model 用标准 chat 模型 id（如 gpt-5-nano、gemini-3.5-flash、deepseek-chat）。传 prompt（单轮）或 messages（多轮，OpenAI 格式）。",
+        "调用一个 LLM 做对话，定位为“向另一个模型征询二次意见 / 试用”，不是主对话通道、不支持流式。异步提交 + 轮询：默认等待 60s，短问答直接返回 text；超时返回 task_id 用 get_task / wait_for_task 取回。model 用 llm-router 注册表模型（如 gemini-3.5-flash、claude-sonnet-4-6、gpt-5.5；可用集见 /v1/configs/llm_generations_models，与生成类不同）。传 prompt（单轮）或 messages（多轮，OpenAI 格式）。",
       inputSchema: {
-        model: z.string().describe("chat 模型 id"),
+        model: z.string().describe("llm-router 模型 id"),
         prompt: z.string().optional().describe("单轮用户输入（与 messages 二选一）"),
         messages: z.array(z.object({ role: z.string(), content: z.string() })).optional()
           .describe("多轮消息（OpenAI 格式，与 prompt 二选一）"),
         system: z.string().optional().describe("系统指令（prompt 模式下前置）"),
         max_tokens: z.number().int().positive().optional(),
         temperature: z.number().min(0).max(2).optional(),
+        wait_seconds: z.number().int().min(0).max(600).optional()
+          .describe(`最长等待秒数，默认 ${DEFAULT_WAIT}，设 0 立即返回 task_id`),
       },
     },
-    async ({ model, prompt, messages, system, max_tokens, temperature }) => {
+    async ({ model, prompt, messages, system, max_tokens, temperature, wait_seconds }) => {
       try {
         if ((prompt ? 1 : 0) + (messages?.length ? 1 : 0) !== 1)
           return errorResult(new Error("prompt / messages 必须且只能提供一个。"));
@@ -610,8 +644,7 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
         const body: Record<string, unknown> = { model, messages: msgs };
         if (max_tokens !== undefined) body.max_tokens = max_tokens;
         if (temperature !== undefined) body.temperature = temperature;
-        const r = await client.chatCompletion(body);
-        return json({ text: r.choices?.[0]?.message?.content ?? null, model: r.model, finish_reason: r.choices?.[0]?.finish_reason, usage: r.usage });
+        return await llmSubmitAndWait(client, body, wait_seconds ?? DEFAULT_WAIT);
       } catch (e) {
         return errorResult(e);
       }
