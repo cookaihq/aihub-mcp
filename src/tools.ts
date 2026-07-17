@@ -1,6 +1,6 @@
-/** 注册 8 个 MCP 工具到 server。 */
-import { readFile } from "node:fs/promises";
-import { basename } from "node:path";
+/** 注册 MCP 工具到 server。 */
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { basename, dirname, extname, isAbsolute, join } from "node:path";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
@@ -90,23 +90,24 @@ function errorResult(e: unknown) {
   return { isError: true, content: [{ type: "text" as const, text: msg }] };
 }
 
-/** 提交生成 + 可选等待。返回精简后的任务视图。 */
+/** 提交生成 + 可选等待。返回精简任务视图；图像成功时附带内联图像块。 */
 async function submitAndMaybeWait(
   client: AihubmaxClient,
   path: string,
   params: Record<string, unknown>,
   waitSeconds: number,
+  inlineImages: boolean,
 ) {
   const submit: SubmitResponse = await client.submitGeneration(path, params);
   if (waitSeconds <= 0 || submit.status === "completed" || submit.status === "failed") {
-    return json(shapeTask(submit));
+    return taskResult(submit, shapeTask(submit), inlineImages);
   }
   const task = await client.pollTask(submit.id, waitSeconds);
   const shaped = shapeTask(task);
   if (task.status !== "completed" && task.status !== "failed") {
-    return json({ ...shaped, note: `任务仍在进行，已等待 ${waitSeconds}s。用 get_task("${task.id}") 继续查询。` });
+    return json({ ...shaped, note: `任务仍在进行，已等待 ${waitSeconds}s。用 get_task("${task.id}") 或 wait_for_task("${task.id}") 继续。` });
   }
-  return json(shaped);
+  return taskResult(task, shaped, inlineImages);
 }
 
 function shapeTask(t: SubmitResponse | TaskResponse) {
@@ -119,6 +120,76 @@ function shapeTask(t: SubmitResponse | TaskResponse) {
     ...("error" in t && t.error ? { error: t.error } : {}),
     usage: t.usage,
   };
+}
+
+const MIME_EXT: Record<string, string> = {
+  "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif",
+  "video/mp4": ".mp4", "audio/mpeg": ".mp3", "audio/wav": ".wav", "application/zip": ".zip",
+};
+
+/** 从 URL（含 content-type 兜底）推断保存文件名。 */
+function urlFilename(url: string, contentType: string | null, index: number): string {
+  try {
+    const base = basename(new URL(url).pathname);
+    if (base && extname(base)) return base;
+  } catch {
+    /* 非法 URL，走兜底 */
+  }
+  const ext = (contentType && MIME_EXT[contentType.split(";")[0]!.trim()]) || ".bin";
+  return `asset-${index}${ext}`;
+}
+
+const INLINE_IMAGE_MAX_BYTES = 1_500_000; // 超过则只回 URL，不内联
+const INLINE_IMAGE_MAX_COUNT = 4;
+const IMAGE_MIME = /^image\//;
+
+/** 从任务结果里挑出图片 URL。 */
+function imageUrls(task: TaskResponse | SubmitResponse): string[] {
+  const raw = (task as { results?: unknown }).results;
+  const results: unknown[] = Array.isArray(raw) ? raw : [];
+  const urls: string[] = [];
+  for (const r of results) {
+    if (r && typeof r === "object" && typeof (r as { url?: unknown }).url === "string") {
+      const url = (r as { url: string }).url;
+      const ct = (r as { content_type?: string }).content_type;
+      if ((ct && IMAGE_MIME.test(ct)) || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url)) urls.push(url);
+    }
+  }
+  return urls;
+}
+
+/** 拉取图片并转成 MCP image 内容块（小图直接内联到对话；大图/失败跳过，只留 URL）。best-effort。 */
+async function imageContentBlocks(
+  task: TaskResponse | SubmitResponse,
+): Promise<{ type: "image"; data: string; mimeType: string }[]> {
+  const urls = imageUrls(task).slice(0, INLINE_IMAGE_MAX_COUNT);
+  const blocks = await Promise.all(
+    urls.map(async (url) => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const mimeType = res.headers.get("content-type") ?? "image/png";
+        if (!IMAGE_MIME.test(mimeType)) return null;
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length > INLINE_IMAGE_MAX_BYTES) return null;
+        return { type: "image" as const, data: buf.toString("base64"), mimeType };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return blocks.filter((b): b is { type: "image"; data: string; mimeType: string } => b !== null);
+}
+
+/** 任务成功且含图片时，在 JSON 文本之外附带图像内容块，供 Claude Desktop 等直接看图。 */
+async function taskResult(task: TaskResponse | SubmitResponse, shaped: object, inlineImages: boolean) {
+  const content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[] = [
+    { type: "text", text: JSON.stringify(shaped, null, 2) },
+  ];
+  if (inlineImages && task.status === "completed") {
+    content.push(...(await imageContentBlocks(task)));
+  }
+  return { content };
 }
 
 /** 把 catalog 的 ParamSpec 渲染成紧凑可读的参数说明。 */
@@ -248,13 +319,16 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
             .describe("请求参数对象（不含 model），如 {prompt, aspect_ratio, ...}，见 describe_model"),
           wait_seconds: z.number().int().min(0).max(600).optional()
             .describe(`最长等待秒数，默认 ${DEFAULT_WAIT}，设 0 立即返回 task_id`),
+          inline_image: z.boolean().optional()
+            .describe("图像成功时是否内联回传图片（默认 true，仅 generate_image 生效；大图自动降级为纯 URL）"),
         },
       },
-      async ({ model, params, wait_seconds }) => {
+      async ({ model, params, wait_seconds, inline_image }) => {
         try {
           const body = { model, ...(params as Record<string, unknown>) };
           const path = media === "audio" ? audioPath(model) : GEN_PATH[media];
-          return await submitAndMaybeWait(client, path, body, wait_seconds ?? DEFAULT_WAIT);
+          const inline = media === "image" && (inline_image ?? true);
+          return await submitAndMaybeWait(client, path, body, wait_seconds ?? DEFAULT_WAIT, inline);
         } catch (e) {
           return errorResult(e);
         }
@@ -278,9 +352,10 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
         wait_seconds: z.number().int().min(0).max(600).optional()
           .describe("最长等待秒数，默认 0（立即返回当前状态）"),
         sync_upstream: z.boolean().optional().describe("是否在返回前主动向上游刷新一次状态"),
+        inline_image: z.boolean().optional().describe("图像结果是否内联回传（默认 true）"),
       },
     },
-    async ({ task_id, wait_seconds, sync_upstream }) => {
+    async ({ task_id, wait_seconds, sync_upstream, inline_image }) => {
       try {
         const wait = wait_seconds ?? 0;
         const task =
@@ -289,9 +364,118 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
             : await client.getTask(task_id, sync_upstream ?? false);
         const shaped = shapeTask(task);
         if (wait > 0 && task.status !== "completed" && task.status !== "failed") {
-          return json({ ...shaped, note: `等待 ${wait}s 后仍未完成，可再次调用 get_task 继续等待。` });
+          return json({ ...shaped, note: `等待 ${wait}s 后仍未完成，可再次调用 get_task 或 wait_for_task 继续等待。` });
         }
-        return json(shaped);
+        return await taskResult(task, shaped, inline_image ?? true);
+      } catch (e) {
+        return errorResult(e);
+      }
+    },
+  );
+
+  // 7b. wait_for_task —— 阻塞等待 + 进度通知
+  server.registerTool(
+    "wait_for_task",
+    {
+      title: "阻塞等待任务完成",
+      description:
+        "阻塞等待某个异步任务直到完成/失败或达到单次等待上限。等待期间向支持的客户端发送 MCP 进度通知。达到 timeout_seconds 仍未完成则返回 still-running（含最新状态），可再次调用续等。适合长任务（视频等）。",
+      inputSchema: {
+        task_id: z.string().describe("要等待的 task_id"),
+        timeout_seconds: z.number().int().min(5).max(600).optional()
+          .describe("单次等待上限秒数，默认 300"),
+        sync_upstream: z.boolean().optional().describe("每次轮询是否主动刷新上游状态"),
+        inline_image: z.boolean().optional().describe("图像结果是否内联回传（默认 true）"),
+      },
+    },
+    async ({ task_id, timeout_seconds, sync_upstream, inline_image }, extra) => {
+      try {
+        const budget = timeout_seconds ?? 300;
+        const deadline = Date.now() + budget * 1000;
+        const progressToken = extra?._meta?.progressToken;
+        const notify = async (task: TaskResponse) => {
+          if (progressToken === undefined) return;
+          try {
+            await extra.sendNotification({
+              method: "notifications/progress",
+              params: {
+                progressToken,
+                progress: task.progress ?? 0,
+                total: 100,
+                message: `任务 ${task.status}（${task.progress ?? 0}%）`,
+              },
+            });
+          } catch {
+            /* 客户端不支持进度通知则忽略 */
+          }
+        };
+        let task = await client.getTask(task_id, sync_upstream ?? false);
+        await notify(task);
+        while (task.status !== "completed" && task.status !== "failed" && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 5000));
+          task = await client.getTask(task_id, sync_upstream ?? false);
+          await notify(task);
+        }
+        const shaped = shapeTask(task);
+        if (task.status !== "completed" && task.status !== "failed") {
+          return json({ ...shaped, wait_result: "still-running", note: `已等待 ${budget}s 仍未完成，可再次调用 wait_for_task 续等。` });
+        }
+        return await taskResult(task, shaped, inline_image ?? true);
+      } catch (e) {
+        return errorResult(e);
+      }
+    },
+  );
+
+  // 7c. download_asset —— 结果落盘
+  server.registerTool(
+    "download_asset",
+    {
+      title: "下载任务产物到本地",
+      description:
+        "把任务产物或任意 URL 下载到本地磁盘（视频等大文件的显式落盘手段）。传 task_id 时下载其成功结果里的全部 url；或直接传 url。产物 URL 24 小时失效，请及时下载。",
+      inputSchema: {
+        task_id: z.string().optional().describe("要下载其结果的 task_id（下载全部结果 url）"),
+        url: z.string().optional().describe("直接下载的 URL（与 task_id 二选一）"),
+        save_dir: z.string().optional().describe("保存目录（默认当前工作目录）；文件名从 URL 推断"),
+        save_path: z.string().optional().describe("单文件完整保存路径（仅 url 模式或单结果时生效，优先于 save_dir）"),
+      },
+    },
+    async ({ task_id, url, save_dir, save_path }) => {
+      try {
+        if ((task_id ? 1 : 0) + (url ? 1 : 0) !== 1) {
+          return errorResult(new Error("task_id / url 必须且只能提供一个。"));
+        }
+        let urls: string[] = [];
+        if (url) {
+          urls = [url];
+        } else {
+          const task = await client.getTask(task_id!);
+          if (task.status !== "completed")
+            return errorResult(new Error(`任务未完成（status=${task.status}），无结果可下载。`));
+          urls = (task.results ?? [])
+            .map((r) => (r && typeof r === "object" ? (r as { url?: string }).url : undefined))
+            .filter((u): u is string => typeof u === "string");
+          if (urls.length === 0) return errorResult(new Error("任务结果中没有可下载的 url（可能是非文件类结果）。"));
+        }
+        const saved: { url: string; path: string; bytes: number }[] = [];
+        for (let i = 0; i < urls.length; i++) {
+          const u = urls[i]!;
+          const res = await fetch(u);
+          if (!res.ok) throw new Error(`下载失败 HTTP ${res.status}: ${u}`);
+          const buf = Buffer.from(await res.arrayBuffer());
+          let outPath: string;
+          if (save_path && urls.length === 1) {
+            outPath = save_path;
+          } else {
+            const fname = urlFilename(u, res.headers.get("content-type"), i);
+            outPath = isAbsolute(save_dir ?? "") ? join(save_dir!, fname) : join(process.cwd(), save_dir ?? "", fname);
+          }
+          await mkdir(dirname(outPath), { recursive: true });
+          await writeFile(outPath, buf);
+          saved.push({ url: u, path: outPath, bytes: buf.length });
+        }
+        return json({ downloaded: saved.length, files: saved });
       } catch (e) {
         return errorResult(e);
       }

@@ -4,16 +4,20 @@ MCP server for the AihubMax media generation API — <https://docs.aihubmax.com>
 
 把 AihubMax（`api.aihubmax.com`）的媒体生成能力（图像 / 视频 / 音频 / 文档 + 异步任务体系）封装成 Agent 友好的 MCP server。目标：Agent 拿到一个 `sk-` key 后，能在对话里顺畅地发现模型、生成媒体、拿回结果。
 
-## 工具（9 个）
+## 工具（11 个）
 
 | 工具 | 作用 |
 |---|---|
-| `list_models` | 列出生成模型（图/视频/音频/文档），按 media_type/关键词过滤，标注当前 Key 是否可用 |
-| `describe_model` | 查看某模型的端点、参数（类型/枚举/默认/中文说明）与示例请求 |
-| `generate_image` / `generate_video` / `generate_audio` / `generate_document` | 提交生成任务，默认等待 60s：短任务直接返回结果 URL，长任务返回 task_id |
+| `list_models` | 列出生成模型（图/视频/音频/文档），按 media_type/关键词过滤，标注可用性 + 定价摘要 |
+| `describe_model` | 查看某模型的端点、参数（类型/枚举/默认/中文说明）、示例、定价 |
+| `generate_image` / `generate_video` / `generate_audio` / `generate_document` | 提交生成任务，默认等待 60s：短任务直接返回结果 URL，长任务返回 task_id；图像成功时内联回传图片 |
 | `get_task` | 查询/轮询异步任务到终态 |
+| `wait_for_task` | 阻塞等待长任务 + MCP 进度通知；超时返回 still-running 可续等 |
+| `download_asset` | 把任务产物或 URL 下载到本地磁盘（视频等大文件落盘） |
 | `get_credits` | 查询当前 Key 的总额度 / 已用 / 剩余 |
 | `upload_file` | 本地文件 / 远程 URL / base64 → 可引用的 URL（i2v 等场景刚需） |
+
+> 规划中（M2）：`analyze_media`（媒体理解）/ `ask_model`（二次意见）/ `create_embeddings`。
 
 模型 id 有两套命名（文档 spec vs 线上可调用），对应关系见 [docs/model-mapping.md](docs/model-mapping.md)（由 `scripts/build-mapping.ts` 生成）。
 
