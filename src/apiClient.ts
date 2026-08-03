@@ -423,15 +423,6 @@ export class AihubmaxClient {
     };
   }
 
-  /** 文本嵌入（OpenAI 兼容，同步秒回，无异步任务模式）。 */
-  createEmbeddings(body: Record<string, unknown>): Promise<{
-    data?: { embedding: number[]; index: number }[];
-    model?: string;
-    usage?: Record<string, unknown>;
-  }> {
-    return this.request("POST", "/v1/embeddings", body);
-  }
-
   /**
    * LLM 异步生成/理解入口（协议由请求体字段自动判别：prompt=text、image_urls=vision、
    * video_urls=video、audio_url=audio、messages=custom）。异步提交，返回 task；

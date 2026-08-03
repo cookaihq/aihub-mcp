@@ -17,13 +17,20 @@ import {
   type TaskResponse,
 } from "./apiClient.js";
 import {
-  findEntryByModel,
   listModelSummaries,
+  resolveEntry,
   type MediaType,
   type ParamSpec,
 } from "./catalog.js";
+import { normalizeModelId } from "./modelId.js";
 
-/** 4 个生成媒体类型 → 提交端点。audio 的 Suno 走单数特例，由 pickAudioPath 处理。 */
+/**
+ * 兜底提交端点：仅在 catalog 查不到该模型时使用。
+ *
+ * 正常路径以 catalog 条目的 path 为准——它同时也是 describe_model 展示的端点，
+ * 两个工具因此不会各说各话。特例（如 Suno 走单数 /v1/audio/generations）由 catalog 数据本身承载，
+ * 不再用模型名正则去猜。
+ */
 const GEN_PATH: Record<MediaType, string> = {
   image: "/v1/images/generations",
   video: "/v1/videos/generations",
@@ -31,37 +38,84 @@ const GEN_PATH: Record<MediaType, string> = {
   document: "/v1/run/generations",
 };
 
-/** Suno 系列走 /v1/audio/generations（单数），其余音频走 /v1/audios/generations（复数）。 */
-function audioPath(model: string): string {
-  return /^suno/i.test(model) ? "/v1/audio/generations" : "/v1/audios/generations";
+/**
+ * 各媒体类型默认等待秒数。video 取 0 是刻意的：视频生成本就是分钟级，
+ * 默认等待只会与客户端 60s 量级的工具超时赛跑——一旦被掐断，任务已提交、
+ * 额度已预扣，而含 task_id 的返回体永远送不到调用方。视频一律先拿 task_id。
+ */
+const DEFAULT_WAIT: Record<MediaType, number> = {
+  image: 45,
+  audio: 45,
+  document: 45,
+  video: 0,
+};
+/** LLM 族（analyze_media / ask_model）的默认等待。 */
+const DEFAULT_LLM_WAIT = 45;
+
+const LIVE_TTL_MS = 60_000;
+const PRICE_TTL_MS = 300_000;
+/** 失败结果的负缓存时长：避免上游持续不可用时，每次工具调用都白跑一整轮退避重试。 */
+const FAILURE_TTL_MS = 10_000;
+
+/**
+ * 带 TTL 的单值缓存，并发调用共享同一个在途请求。
+ *
+ * 缓存 Promise 而非结果：list_models / describe_model 都会并发拉 live + pricing，
+ * 冷启动时若缓存结果，两个工具并发就会打出 4 个请求。
+ */
+function cachedLoader<T>(load: () => Promise<T>, ttlOf: (v: T) => number): () => Promise<T> {
+  let entry: { at: number; ttl: number; value: Promise<T> } | null = null;
+  return () => {
+    if (entry && Date.now() - entry.at < entry.ttl) return entry.value;
+    const fresh = { at: Date.now(), ttl: Number.MAX_SAFE_INTEGER, value: load() };
+    entry = fresh;
+    fresh.value.then(
+      (v) => {
+        if (entry === fresh) fresh.ttl = ttlOf(v);
+      },
+      () => {
+        if (entry === fresh) entry = null;
+      },
+    );
+    return fresh.value;
+  };
 }
 
-const DEFAULT_WAIT = 60;
+/** /v1/models 的拉取结果。失败原因必须带出来，调用方要据此决定是拒绝还是降级。 */
+export type LiveResult =
+  | { ok: true; models: Map<string, LiveModel> }
+  | { ok: false; error: string };
 
-/** 缓存 /v1/models（TTL 60s），供可用性标注与端点类型。 */
-let liveCache: { at: number; models: Map<string, LiveModel> } | null = null;
-async function liveModels(client: AihubmaxClient): Promise<Map<string, LiveModel> | null> {
-  if (liveCache && Date.now() - liveCache.at < 60_000) return liveCache.models;
-  try {
-    const models = await client.listLiveModels();
-    liveCache = { at: Date.now(), models };
-    return models;
-  } catch {
-    return null; // 拉取失败不阻断 list_models，只是无法标注可用性
+const liveLoader = new WeakMap<AihubmaxClient, () => Promise<LiveResult>>();
+function liveModels(client: AihubmaxClient): Promise<LiveResult> {
+  let loader = liveLoader.get(client);
+  if (!loader) {
+    loader = cachedLoader<LiveResult>(
+      async () => {
+        try {
+          return { ok: true, models: await client.listLiveModels() };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
+      },
+      (v) => (v.ok ? LIVE_TTL_MS : FAILURE_TTL_MS),
+    );
+    liveLoader.set(client, loader);
   }
+  return loader();
 }
 
-/** 缓存 /api/pricing（TTL 5min，公开端点），供定价摘要。 */
-let priceCache: { at: number; table: PricingTable } | null = null;
-async function pricing(client: AihubmaxClient): Promise<PricingTable | null> {
-  if (priceCache && Date.now() - priceCache.at < 300_000) return priceCache.table;
-  try {
-    const table = await client.getPricing();
-    priceCache = { at: Date.now(), table };
-    return table;
-  } catch {
-    return null;
+const priceLoader = new WeakMap<AihubmaxClient, () => Promise<PricingTable | null>>();
+function pricing(client: AihubmaxClient): Promise<PricingTable | null> {
+  let loader = priceLoader.get(client);
+  if (!loader) {
+    loader = cachedLoader<PricingTable | null>(
+      () => client.getPricing().catch(() => null),
+      (v) => (v ? PRICE_TTL_MS : FAILURE_TTL_MS),
+    );
+    priceLoader.set(client, loader);
   }
+  return loader();
 }
 
 /** 定价摘要字符串。按次固定价给 USD 基准；按量计费透传倍率，不臆造 $/1M。 */
@@ -281,6 +335,25 @@ async function taskResult(task: TaskResponse | SubmitResponse, shaped: object, i
   return { content };
 }
 
+/**
+ * 示例请求里的占位值。无 default、无 enum 时用尖括号占位符而不是 null——
+ * null 看起来像个合法值，照抄提交必然 422；`<number>` 一眼可见必须替换。
+ */
+function exampleValue(p: ParamSpec): unknown {
+  if (p.default !== undefined) return p.default;
+  if (p.enum?.length) return p.enum[0];
+  switch (p.type) {
+    case "string":
+      return "<string>";
+    case "array":
+      return [];
+    case "object":
+      return {};
+    default:
+      return `<${p.type ?? "value"}>`;
+  }
+}
+
 /** 把 catalog 的 ParamSpec 渲染成紧凑可读的参数说明。 */
 function renderParams(specs: ParamSpec[]) {
   return specs.map((p) => ({
@@ -300,32 +373,118 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
     {
       title: "列出可用生成模型",
       description:
-        "列出 AihubMax 的媒体生成模型（图像/视频/音频/文档）。可按 media_type 或关键词过滤。available=true 表示当前 API Key 分组可直接调用；available=false 表示文档中存在但当前 Key 未开通。price 为定价摘要，group_ratios 给出各分组倍率（最终价=基准×倍率）。",
+        "列出模型。models 里的 model 就是可直接提交的真实 id（来自 GET /v1/models），" +
+        "含 veo-3.1[4k]、google/veo-3.1[fast] 这类变体命名——照抄即可提交。" +
+        "catalog_only 段是文档中存在但当前 Key 未开通的模型（需开通后才能调用，不要直接提交）。" +
+        "media_type=\"llm\" 时改为列出 llm-router 注册表（analyze_media / ask_model 用的模型集，与生成类不同）。" +
+        "price 为定价摘要，group_ratios 给出各分组倍率（最终价=基准×倍率）。",
       inputSchema: {
-        media_type: z.enum(["image", "video", "audio", "document"]).optional()
-          .describe("按媒体类型过滤"),
+        media_type: z.enum(["image", "video", "audio", "document", "llm"]).optional()
+          .describe("按媒体类型过滤；llm 表示改列 llm-router 模型（analyze_media / ask_model 用）"),
         keyword: z.string().optional().describe("按模型名/标题关键词过滤，如 veo、kling、tts"),
-        available_only: z.boolean().optional().describe("仅返回当前 Key 可调用的模型"),
+        available_only: z.boolean().optional()
+          .describe("只要主列表（省略 catalog_only 段）。无法确认可用性时本工具会报错而非静默返回全量"),
       },
     },
     async ({ media_type, keyword, available_only }) => {
       try {
-        const summaries = listModelSummaries({ mediaType: media_type as MediaType, keyword });
+        const kw = keyword?.toLowerCase();
+        if (media_type === "llm") {
+          const models = await client.listLlmModels();
+          const rows = models
+            .filter((m) => !kw || `${m.id} ${(m.capabilities ?? []).join(" ")}`.toLowerCase().includes(kw))
+            .map((m) => ({ model: m.id, capabilities: m.capabilities ?? null }));
+          return json({
+            source: "GET /v1/configs/llm_generations_models（llm-router 注册表）",
+            note: "这些模型供 analyze_media / ask_model 使用，与生成类模型是两套注册表。",
+            total: rows.length,
+            models: rows,
+          });
+        }
+
+        const mediaFilter = media_type as MediaType | undefined;
         const [live, price] = await Promise.all([liveModels(client), pricing(client)]);
-        let rows = summaries.map((s) => ({
-          model: s.model,
-          media_type: s.mediaType,
-          title: s.title,
-          available: live ? live.has(s.model) : null,
-          price: price ? priceSummary(price.models.get(s.model)) : null,
-        }));
-        if (available_only && live) rows = rows.filter((r) => r.available);
+
+        if (!live.ok) {
+          // H3：无法确认可用性时，available_only 无法履行，必须报错而不是静默返回全量
+          if (available_only) {
+            return errorResult(
+              new Error(
+                `无法确认模型可用性（拉取 /v1/models 失败：${live.error}）。` +
+                  `available_only 无法履行，请稍后重试；或去掉 available_only —— 届时返回的是文档目录，` +
+                  `其中的裸 family 名（如 veo-3.1）不保证能直接提交。`,
+              ),
+            );
+          }
+          const rows = listModelSummaries({ mediaType: mediaFilter, keyword }).map((s) => ({
+            model: s.model,
+            media_type: s.mediaType,
+            title: s.title,
+            price: price ? priceSummary(price.models.get(s.model)) : null,
+          }));
+          return json({
+            source: "catalog（文档目录，降级结果）",
+            availability_known: false,
+            availability_error: live.error,
+            note: "拉取 /v1/models 失败，无法确认可用性。此处 model 来自文档，可能是不可直接提交的 family 名，提交前请先重试本工具拿真实 id。",
+            pricing_known: price !== null,
+            group_ratios: price?.groupRatio ?? null,
+            total: rows.length,
+            models: rows,
+          });
+        }
+
+        // 主列表以 live 为准：列出的 id 必然可提交。catalog 只负责补参数说明与标题。
+        const mappedCatalogModels = new Set<string>();
+        const rows: Record<string, unknown>[] = [];
+        let unmappedLive = 0;
+        for (const [liveId, lm] of live.models) {
+          const r = resolveEntry(liveId);
+          if (!r) {
+            unmappedLive++;
+            continue;
+          }
+          mappedCatalogModels.add(r.catalogModel);
+          if (mediaFilter && r.entry.mediaType !== mediaFilter) continue;
+          if (kw && !`${liveId} ${r.entry.title} ${r.entry.summary ?? ""}`.toLowerCase().includes(kw)) continue;
+          const variants = normalizeModelId(liveId).variants;
+          rows.push({
+            model: liveId,
+            media_type: r.entry.mediaType,
+            title: r.entry.title,
+            ...(r.match === "family" ? { catalog_model: r.catalogModel } : {}),
+            ...(variants.length ? { variants } : {}),
+            price: price ? priceSummary(price.models.get(liveId) ?? price.models.get(r.catalogModel)) : null,
+            ...(lm.supported_endpoint_types ? { supported_endpoint_types: lm.supported_endpoint_types } : {}),
+          });
+        }
+        rows.sort((a, b) => String(a.model).localeCompare(String(b.model)));
+
+        // catalog 有、live 无对应 id：文档可见但当前 Key 未开通。
+        // 必须排除已被变体命中的 family（如 fabric-1.0 有 fabric-1.0[480p] 在线），否则会误报「不可用」。
+        const catalogOnly = listModelSummaries({ mediaType: mediaFilter, keyword })
+          .filter((s) => !mappedCatalogModels.has(s.model) && !live.models.has(s.model))
+          .map((s) => ({ model: s.model, media_type: s.mediaType, title: s.title }));
+
         return json({
-          total: rows.length,
-          availability_known: live !== null,
+          source: "GET /v1/models（当前 Key 实际可调用）+ catalog（参数说明）",
+          availability_known: true,
           pricing_known: price !== null,
           group_ratios: price?.groupRatio ?? null,
+          total: rows.length,
           models: rows,
+          ...(available_only
+            ? {}
+            : {
+                catalog_only: {
+                  count: catalogOnly.length,
+                  note: "文档中存在但当前 Key 未开通，直接提交会 422 model_not_found；需先在控制台开通。",
+                  models: catalogOnly,
+                },
+              }),
+          unmapped_live_count: unmappedLive,
+          unmapped_live_note:
+            "网关可见但 catalog 无对应生成条目的模型数（多为 chat 模型）。LLM 族请用 media_type=\"llm\" 查询。",
         });
       } catch (e) {
         return errorResult(e);
@@ -346,41 +505,53 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
     },
     async ({ model }) => {
       try {
-        const entry = findEntryByModel(model);
-        if (!entry) {
+        const resolved = resolveEntry(model);
+        if (!resolved) {
           return errorResult(
-            new Error(`目录中未找到模型 "${model}"。用 list_models 查看可用模型（注意用真实 model id）。`),
+            new Error(`目录中未找到模型 "${model}"。用 list_models 查看可用模型（models 段里的 model 可直接提交）。`),
           );
         }
-        const example: Record<string, unknown> = { model };
+        const { entry, catalogModel, match } = resolved;
+        const params: Record<string, unknown> = {};
         for (const p of entry.paramSpecs) {
           if (p.name === "model") continue;
           if (!p.required) continue;
-          example[p.name] =
-            p.default ?? (p.enum?.[0]) ?? (p.type === "string" ? "..." : p.type === "array" ? [] : null);
+          params[p.name] = exampleValue(p);
         }
         const [live, price] = await Promise.all([liveModels(client), pricing(client)]);
-        const pe = price?.models.get(model);
-        const pricingInfo = pe
-          ? {
-              summary: priceSummary(pe),
-              quota_type: pe.quota_type === 1 ? "per_call" : pe.quota_type === 0 ? "per_token" : "unknown",
-              enable_groups: pe.enable_groups ?? null,
-              per_group_usd: perGroupPrice(pe, price!.groupRatio),
-            }
-          : null;
+        const liveModel = live.ok ? live.models.get(model) : undefined;
+        const pe = price?.models.get(model) ?? price?.models.get(catalogModel);
+        const pricingInfo =
+          pe && price
+            ? {
+                summary: priceSummary(pe),
+                quota_type: pe.quota_type === 1 ? "per_call" : pe.quota_type === 0 ? "per_token" : "unknown",
+                enable_groups: pe.enable_groups ?? null,
+                per_group_usd: perGroupPrice(pe, price.groupRatio),
+              }
+            : null;
         return json({
           model,
           media_type: entry.mediaType,
-          endpoint: `POST ${entry.mediaType === "audio" ? audioPath(model) : entry.path}`,
+          // 端点以 catalog 的 path 为准，与 generate_* 实际提交的地址是同一个来源
+          endpoint: `POST ${entry.path}`,
           title: entry.title,
           description: entry.description,
-          available: live ? live.has(model) : null,
-          supported_endpoint_types: live?.get(model)?.supported_endpoint_types ?? null,
+          available: live.ok ? live.models.has(model) : null,
+          ...(live.ok ? {} : { availability_error: live.error }),
+          ...(match === "family"
+            ? {
+                catalog_model: catalogModel,
+                param_source_note: `参数说明来自 catalog 的 family 条目 "${catalogModel}"；变体 [${normalizeModelId(model).variants.join("|")}] 的专属参数可能未收录。`,
+              }
+            : {}),
+          supported_endpoint_types: liveModel?.supported_endpoint_types ?? null,
           pricing: pricingInfo,
           required_params: entry.requiredParams,
           params: renderParams(entry.paramSpecs),
-          example_request: example,
+          // 与 generate_* 的入参形状一致：model 单独传，其余放 params
+          example_request: { model, params },
+          example_note: "尖括号占位符（如 <number>）必须替换成真实值后再提交。",
           spec_file: `${entry.file}`,
         });
       } catch (e) {
@@ -401,23 +572,47 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
       {
         title,
         description:
-          `${hint} 先用 describe_model 确认该 model 的参数。默认等待 ${DEFAULT_WAIT}s：短任务直接返回结果 URL；长任务超时返回 task_id，用 get_task 继续查询。`,
+          `${hint} 先用 describe_model 确认该 model 的参数；model 请用 list_models 返回的真实 id。` +
+          (DEFAULT_WAIT[media] > 0
+            ? `默认等待 ${DEFAULT_WAIT[media]}s：短任务直接返回结果 URL；超时返回 task_id，用 wait_for_task 续等。`
+            : `默认不等待、立即返回 task_id——该类任务通常是分钟级，阻塞等待会撞穿客户端的工具超时，` +
+              `导致任务已提交、额度已扣却拿不到 task_id。拿到 task_id 后用 wait_for_task 等结果；确需同步等待可显式传 wait_seconds。`),
         inputSchema: {
-          model: z.string().describe("模型 id"),
+          model: z.string().describe("模型 id（用 list_models 返回的真实 id）"),
           params: z.record(z.string(), z.unknown())
             .describe("请求参数对象（不含 model），如 {prompt, aspect_ratio, ...}，见 describe_model"),
           wait_seconds: z.number().int().min(0).max(600).optional()
-            .describe(`最长等待秒数，默认 ${DEFAULT_WAIT}，设 0 立即返回 task_id`),
+            .describe(`最长等待秒数，默认 ${DEFAULT_WAIT[media]}，设 0 立即返回 task_id`),
           inline_image: z.boolean().optional()
             .describe("图像成功时是否内联回传图片（默认 true，仅 generate_image 生效；大图自动降级为纯 URL）"),
         },
       },
       async ({ model, params, wait_seconds, inline_image }) => {
         try {
-          const body = { model, ...(params as Record<string, unknown>) };
-          const path = media === "audio" ? audioPath(model) : GEN_PATH[media];
+          const extra = params as Record<string, unknown>;
+          // params 里混进 model 会与顶层 model 打架：端点按顶层 model 选，body 却可能是另一个模型
+          if ("model" in extra && extra.model !== model) {
+            return errorResult(
+              new Error(
+                `params 里的 model（"${String(extra.model)}"）与顶层 model（"${model}"）不一致。` +
+                  `params 不应包含 model，请只在顶层传 model。`,
+              ),
+            );
+          }
+          const resolved = resolveEntry(model);
+          if (resolved?.entry.mediaType && resolved.entry.mediaType !== media) {
+            return errorResult(
+              new Error(
+                `模型 "${model}" 是 ${resolved.entry.mediaType} 类模型，不能用 ${name} 提交，` +
+                  `请改用 generate_${resolved.entry.mediaType}。`,
+              ),
+            );
+          }
+          // 端点以 catalog 的 path 为准（describe_model 展示的也是它），硬编码表只作兜底
+          const path = resolved?.entry.path ?? GEN_PATH[media];
+          const body = { ...extra, model };
           const inline = media === "image" && (inline_image ?? true);
-          return await submitAndMaybeWait(client, path, body, wait_seconds ?? DEFAULT_WAIT, inline);
+          return await submitAndMaybeWait(client, path, body, wait_seconds ?? DEFAULT_WAIT[media], inline);
         } catch (e) {
           return errorResult(e);
         }
@@ -652,9 +847,12 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
     {
       title: "媒体理解（图/视频/音频 → 文本）",
       description:
-        "用多模态 LLM 分析媒体内容并输出文本（宿主模型自身无法看视频/听音频，此为能力补充）。三选一提供 image_urls / video_urls / audio_url（协议自动判别）。异步提交：默认等待 60s，短任务直接返回 text；长任务（视频/思考模型）超时返回 task_id，用 get_task / wait_for_task 取回。模型来自 llm-router 注册表（与生成类不同），用支持对应能力的模型（如 gemini-3.1-pro-preview 支持 vision/video/audio）；model 无效时错误会列出可用模型。",
+        "用多模态 LLM 分析媒体内容并输出文本（宿主模型自身无法看视频/听音频，此为能力补充）。" +
+        "三选一提供 image_urls / video_urls / audio_url（协议自动判别）。" +
+        `异步提交：默认等待 ${DEFAULT_LLM_WAIT}s，短任务直接返回 text；长任务（视频/思考模型）超时返回 task_id，用 wait_for_task 取回。` +
+        "模型来自 llm-router 注册表（与生成类是两套），用 list_models(media_type=\"llm\") 查可用集与各模型的 capabilities（vision/video/audio 等），据此选模型。",
       inputSchema: {
-        model: z.string().describe("llm-router 模型 id，如 gemini-3.1-pro-preview、claude-sonnet-4-6"),
+        model: z.string().describe("llm-router 模型 id（用 list_models(media_type=\"llm\") 查可用集）"),
         prompt: z.string().describe("对媒体的分析指令，如“描述这段视频”“转写这段音频”"),
         image_urls: z.array(z.string()).optional().describe("图片 URL 数组（1–10 张）"),
         video_urls: z.array(z.string()).optional().describe("视频 URL 数组（1–10 个）"),
@@ -663,7 +861,7 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
         max_tokens: z.number().int().positive().optional(),
         temperature: z.number().min(0).max(2).optional(),
         wait_seconds: z.number().int().min(0).max(600).optional()
-          .describe(`最长等待秒数，默认 ${DEFAULT_WAIT}，设 0 立即返回 task_id`),
+          .describe(`最长等待秒数，默认 ${DEFAULT_LLM_WAIT}，设 0 立即返回 task_id`),
       },
     },
     async ({ model, prompt, image_urls, video_urls, audio_url, system_prompt, max_tokens, temperature, wait_seconds }) => {
@@ -678,7 +876,7 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
         if (system_prompt) body.system_prompt = system_prompt;
         if (max_tokens !== undefined) body.max_tokens = max_tokens;
         if (temperature !== undefined) body.temperature = temperature;
-        return await llmSubmitAndWait(client, body, wait_seconds ?? DEFAULT_WAIT);
+        return await llmSubmitAndWait(client, body, wait_seconds ?? DEFAULT_LLM_WAIT);
       } catch (e) {
         return errorResult(e);
       }
@@ -691,23 +889,31 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
     {
       title: "问另一个模型（二次意见）",
       description:
-        "调用一个 LLM 做对话，定位为“向另一个模型征询二次意见 / 试用”，不是主对话通道、不支持流式。异步提交 + 轮询：默认等待 60s，短问答直接返回 text；超时返回 task_id 用 get_task / wait_for_task 取回。model 用 llm-router 注册表模型（如 gemini-3.5-flash、claude-sonnet-4-6、gpt-5.5；可用集见 /v1/configs/llm_generations_models，与生成类不同）。传 prompt（单轮）或 messages（多轮，OpenAI 格式）。",
+        "调用一个 LLM 做对话，定位为“向另一个模型征询二次意见 / 试用”，不是主对话通道、不支持流式。" +
+        `异步提交 + 轮询：默认等待 ${DEFAULT_LLM_WAIT}s，短问答直接返回 text；超时返回 task_id 用 wait_for_task 取回。` +
+        "model 用 llm-router 注册表模型（与生成类是两套），用 list_models(media_type=\"llm\") 查可用集。" +
+        "传 prompt（单轮）或 messages（多轮，OpenAI 格式）。",
       inputSchema: {
-        model: z.string().describe("llm-router 模型 id"),
+        model: z.string().describe("llm-router 模型 id（用 list_models(media_type=\"llm\") 查可用集）"),
         prompt: z.string().optional().describe("单轮用户输入（与 messages 二选一）"),
         messages: z.array(z.object({ role: z.string(), content: z.string() })).optional()
-          .describe("多轮消息（OpenAI 格式，与 prompt 二选一）"),
-        system: z.string().optional().describe("系统指令（prompt 模式下前置）"),
+          .describe("多轮消息（OpenAI 格式，与 prompt 二选一）；用本参数时 system 请写成 messages 的第一条"),
+        system: z.string().optional().describe("系统指令（仅 prompt 模式；与 messages 同时传会报错）"),
         max_tokens: z.number().int().positive().optional(),
         temperature: z.number().min(0).max(2).optional(),
         wait_seconds: z.number().int().min(0).max(600).optional()
-          .describe(`最长等待秒数，默认 ${DEFAULT_WAIT}，设 0 立即返回 task_id`),
+          .describe(`最长等待秒数，默认 ${DEFAULT_LLM_WAIT}，设 0 立即返回 task_id`),
       },
     },
     async ({ model, prompt, messages, system, max_tokens, temperature, wait_seconds }) => {
       try {
         if ((prompt ? 1 : 0) + (messages?.length ? 1 : 0) !== 1)
           return errorResult(new Error("prompt / messages 必须且只能提供一个。"));
+        // 之前 messages 模式会静默丢掉 system，调用方无从察觉指令没生效
+        if (messages?.length && system)
+          return errorResult(
+            new Error("messages 模式下 system 不生效，请把系统指令写成 messages 的第一条（role=\"system\"）。"),
+          );
         const msgs = messages ?? [
           ...(system ? [{ role: "system", content: system }] : []),
           { role: "user", content: prompt! },
@@ -715,38 +921,11 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
         const body: Record<string, unknown> = { model, messages: msgs };
         if (max_tokens !== undefined) body.max_tokens = max_tokens;
         if (temperature !== undefined) body.temperature = temperature;
-        return await llmSubmitAndWait(client, body, wait_seconds ?? DEFAULT_WAIT);
+        return await llmSubmitAndWait(client, body, wait_seconds ?? DEFAULT_LLM_WAIT);
       } catch (e) {
         return errorResult(e);
       }
     },
   );
 
-  // 12. create_embeddings —— 文本嵌入
-  server.registerTool(
-    "create_embeddings",
-    {
-      title: "文本嵌入",
-      description:
-        "生成文本向量嵌入（OpenAI 兼容）。model 用嵌入模型 id（如 text-embedding-3-small、jina-embeddings-v3）。input 为字符串或字符串数组。",
-      inputSchema: {
-        model: z.string().describe("嵌入模型 id"),
-        input: z.union([z.string(), z.array(z.string())]).describe("待嵌入文本，单条或数组"),
-      },
-    },
-    async ({ model, input }) => {
-      try {
-        const r = await client.createEmbeddings({ model, input });
-        return json({
-          model: r.model,
-          count: r.data?.length ?? 0,
-          dimensions: r.data?.[0]?.embedding?.length ?? null,
-          usage: r.usage,
-          embeddings: r.data?.map((d) => ({ index: d.index, embedding: d.embedding })),
-        });
-      } catch (e) {
-        return errorResult(e);
-      }
-    },
-  );
 }

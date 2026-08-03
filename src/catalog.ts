@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { normalizeModelId } from "./modelId.js";
 
 export interface ParamSpec {
   name: string;
@@ -66,6 +67,25 @@ export function findEntryByModel(model: string): CatalogEntry | undefined {
   const matches = generationEntries().filter((e) => e.models.includes(model));
   if (matches.length === 0) return undefined;
   return matches.sort((a, b) => b.params.length - a.params.length)[0];
+}
+
+/**
+ * 为一个 live id 找参数说明：先精确匹配，再按归一化 family 匹配。
+ *
+ * 必须有 family 兜底——网关侧 17 个可调用 id 是 `veo-3.1[4k]`、`google/veo-3.1[fast]`
+ * 这类变体命名，catalog 里只有裸名 `veo-3.1`，精确匹配一个都对不上。
+ */
+export function resolveEntry(
+  modelId: string,
+): { entry: CatalogEntry; catalogModel: string; match: "exact" | "family" } | undefined {
+  const exact = findEntryByModel(modelId);
+  if (exact) return { entry: exact, catalogModel: modelId, match: "exact" };
+
+  const { base } = normalizeModelId(modelId);
+  if (base === modelId) return undefined;
+  const viaBase = findEntryByModel(base);
+  if (viaBase) return { entry: viaBase, catalogModel: base, match: "family" };
+  return undefined;
 }
 
 export interface ModelSummary {
