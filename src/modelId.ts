@@ -17,6 +17,15 @@ export interface NormalizedModelId {
   variants: string[];
 }
 
+/**
+ * 只剥**第一段** provider 前缀，这是刻意的而非疏漏。
+ *
+ * 当前 live id 里带斜杠的只有 `google/veo-3.1*`、`openai/sora-2*`，均为单段前缀。
+ * 若改用 lastIndexOf 去贪婪剥离，遇到 `some-model/edit` 这种「斜杠不是 provider 前缀」
+ * 的 id 会算出 base=`edit`，可能误匹配到毫不相干的 catalog 条目。
+ * 归一化只用于「给 live id 找参数说明」，宁可漏匹配（退化成无参数说明）也不能误匹配
+ * （给出错误的参数说明）。
+ */
 export function normalizeModelId(id: string): NormalizedModelId {
   const noPrefix = id.includes("/") ? id.slice(id.indexOf("/") + 1) : id;
   const m = /^([^[]+)(?:\[([^\]]*)\])?$/.exec(noPrefix);

@@ -8,7 +8,7 @@
  * 用法：npm test
  */
 import { createServer } from "node:http";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -58,6 +58,7 @@ console.log("== 重试策略（H1 / M1 / M3）==");
   const port = (srv.address() as { port: number }).port;
   const client = new AihubmaxClient({ baseUrl: `http://127.0.0.1:${port}`, apiKey: "sk-test" });
 
+  try {
   mode = "502";
   hits = {};
   await client.getTask("t1").catch(() => {});
@@ -93,8 +94,11 @@ console.log("== 重试策略（H1 / M1 / M3）==");
   const el2 = Date.now() - t2;
   check("pollTask 时长有界，不超调（H4）",
     el2 >= 12_000 && el2 < 14_000 && task.status === "processing", `预算 12s，实耗 ${el2}ms`);
-
-  srv.close();
+  } finally {
+    // 必须在 finally：任一断言前的 await 抛出时若不关服务端，npm test 会挂住不退出，
+    // 作为 CI gate「挂死」比「失败退出」难诊断得多
+    srv.close();
+  }
 }
 
 // ---------- 2. 流式下载：大文件不进内存 ----------
@@ -117,17 +121,61 @@ console.log("\n== 流式下载（H5）==");
   await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
   const port = (srv.address() as { port: number }).port;
   const out = join(tmpdir(), `aihub-stream-test-${process.pid}.bin`);
-  const base = process.memoryUsage().rss;
+  /*
+   * 判据用 arrayBuffers 而非 rss。rss 受 GC 时机影响噪声极大（同一段流式下载实测在
+   * 2–55MB 之间跳），拿它做阈值必然 flaky；arrayBuffers 直接反映「缓冲区里持有多少字节」，
+   * 流式下恒定在 ~33MB（与文件大小无关），整体 arrayBuffer() 则随文件线性增长。
+   */
+  const base = process.memoryUsage().arrayBuffers;
   let peak = base;
-  const mon = setInterval(() => { peak = Math.max(peak, process.memoryUsage().rss); }, 20);
-  const r = await downloadToFile(`http://127.0.0.1:${port}/big.mp4`, () => out);
-  clearInterval(mon);
-  const onDisk = (await stat(out)).size;
-  await rm(out, { force: true });
-  srv.close();
-  const growthMB = (peak - base) / 1048576;
-  check("字节数完整落盘", r.bytes === TOTAL_MB * 1048576 && onDisk === r.bytes, `${(r.bytes / 1048576).toFixed(0)}MB`);
-  check("内存不随文件体积增长", growthMB < TOTAL_MB / 4, `${TOTAL_MB}MB 文件，RSS 仅增 ${growthMB.toFixed(0)}MB`);
+  const mon = setInterval(() => {
+    peak = Math.max(peak, process.memoryUsage().arrayBuffers);
+  }, 20);
+  try {
+    const r = await downloadToFile(`http://127.0.0.1:${port}/big.mp4`, () => out);
+    clearInterval(mon);
+    const onDisk = (await stat(out)).size;
+    const heldMB = (peak - base) / 1048576;
+    check("字节数完整落盘", r.bytes === TOTAL_MB * 1048576 && onDisk === r.bytes,
+      `${(r.bytes / 1048576).toFixed(0)}MB`);
+    check("缓冲区持有量不随文件体积增长", heldMB < TOTAL_MB / 2,
+      `${TOTAL_MB}MB 文件，峰值仅持有 ${heldMB.toFixed(0)}MB（整体进内存会是 ${TOTAL_MB}MB+）`);
+  } finally {
+    clearInterval(mon);
+    await rm(out, { force: true });
+    srv.close();
+  }
+}
+
+// ---------- 2b. 下载中途失败不得留下半截文件 ----------
+console.log("\n== 下载失败的清理 ==");
+{
+  // 声明 10MB，发 1MB 后掐断连接
+  const srv = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "video/mp4", "content-length": String(10 * 1048576) });
+    res.write(Buffer.alloc(1048576, 0x41));
+    setTimeout(() => res.socket?.destroy(), 30);
+  });
+  await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+  const port = (srv.address() as { port: number }).port;
+  const out = join(tmpdir(), `aihub-partial-${process.pid}.bin`);
+  try {
+    let threw = false;
+    try {
+      await downloadToFile(`http://127.0.0.1:${port}/x.mp4`, () => out);
+    } catch {
+      threw = true;
+    }
+    check("中断的下载会抛错", threw, threw ? "已抛出" : "竟然成功返回");
+    const leftover = existsSync(out) ? (await stat(out)).size : -1;
+    check("目标路径不留半截文件", leftover === -1,
+      leftover === -1 ? "无残留" : `残留 ${leftover} 字节的坏文件`);
+    check("临时 .part 文件也已清理", !existsSync(`${out}.part`), `${out}.part`);
+  } finally {
+    await rm(out, { force: true });
+    await rm(`${out}.part`, { force: true });
+    srv.close();
+  }
 }
 
 // ---------- 3. list_models 双列表 ----------
@@ -196,6 +244,40 @@ console.log("\n== list_models 双列表（H2 / H3）==");
     `availability_known=${deg.availability_known}`);
 }
 
+// ---------- 3b. 提交成功后轮询失败，必须交还 task_id ----------
+console.log("\n== 已计费任务的句柄不丢失 ==");
+{
+  class PollFails extends AihubmaxClient {
+    constructor() {
+      super({ baseUrl: "http://127.0.0.1:1", apiKey: "sk-t" });
+    }
+    override async listLiveModels(): Promise<Map<string, LiveModel>> {
+      return new Map();
+    }
+    override async getPricing() {
+      return { models: new Map(), groupRatio: {} };
+    }
+    override async submitGeneration() {
+      return { id: "task-已计费", status: "pending" as const };
+    }
+    // 提交成功、轮询挂掉：任务已创建且已预扣额度
+    override async pollTask(): Promise<never> {
+      throw new Error("模拟轮询期间网关不可用");
+    }
+  }
+  const server = new McpServer({ name: "t", version: "0" });
+  registerTools(server, new PollFails());
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  const mcp = new Client({ name: "t", version: "0" });
+  await Promise.all([server.connect(st), mcp.connect(ct)]);
+  const r = (await mcp.callTool({
+    name: "generate_image",
+    arguments: { model: "gpt-image-2", params: { prompt: "x" }, wait_seconds: 30 },
+  })) as { content: { text?: string }[]; isError?: boolean };
+  const text = r.content.map((c) => c.text ?? "").join("\n");
+  check("轮询失败时仍交还 task_id", text.includes("task-已计费"), text.slice(0, 120));
+}
+
 // ---------- 4. oneOf 必填项不取并集 ----------
 console.log("\n== oneOf 必填项（M12）==");
 {
@@ -236,11 +318,15 @@ console.log("\n== oneOf 必填项（M12）==");
         },
       }),
     );
+    // 输出写到临时目录：绝不能覆盖仓库里的 catalog/catalog.zh.json，
+    // 否则开发者刚生成、尚未提交的目录改动会被静默丢弃且不可恢复
+    const outDir = join(dir, "out");
+    mkdirSync(outDir, { recursive: true });
     execFileSync("npx", ["tsx", join(root, "scripts", "build-catalog.ts")], {
-      env: { ...process.env, MINTLIFY_DIR: dir },
+      env: { ...process.env, MINTLIFY_DIR: dir, CATALOG_OUT_DIR: outDir },
       stdio: "pipe",
     });
-    const cat = JSON.parse(readFileSync(join(root, "catalog", "catalog.zh.json"), "utf8")) as {
+    const cat = JSON.parse(readFileSync(join(outDir, "catalog.zh.json"), "utf8")) as {
       entries: { models: string[]; requiredParams: string[]; conditionalRequiredParams?: string[] }[];
     };
     const e = cat.entries.find((x) => x.models.includes("demo-1.0"))!;
@@ -255,8 +341,6 @@ console.log("\n== oneOf 必填项（M12）==");
       e.requiredParams.includes("model"), `requiredParams 含 model`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
-    // build-catalog 会覆盖真实产物，用 git 还原
-    execFileSync("git", ["checkout", "--", "catalog/catalog.zh.json"], { cwd: root, stdio: "pipe" });
   }
 }
 

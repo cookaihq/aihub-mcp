@@ -25,7 +25,9 @@ const DOCS_JSON = join(MINTLIFY_DIR, "docs.json");
 for (const [label, p] of [["openapi 目录", SPEC_DIR], ["docs.json", DOCS_JSON]] as const) {
   if (!existsSync(p)) throw new Error(`MINTLIFY_DIR 下找不到${label}：${p}`);
 }
-const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "catalog");
+// 输出目录可覆盖：测试用临时目录跑，避免碰到仓库里的真实产物
+const OUT_DIR =
+  process.env.CATALOG_OUT_DIR ?? join(dirname(fileURLToPath(import.meta.url)), "..", "catalog");
 const SPEC_BASE_URL = `https://docs.aihubmax.com/openapi/${LANG}/`;
 
 type JsonObject = Record<string, unknown>;
@@ -255,9 +257,27 @@ for (const file of specFiles) {
 }
 
 const filesOnDisk = new Set(specFiles);
+/*
+ * 同一个 model 名跨 mediaType / path 出现，会让运行时的两个假设同时失效：
+ * genIndex().byModel 只留一条（另一条被无声吞掉），generate_* 的媒体类型拦截会误伤，
+ * 且端点可能选错。当前数据是 0 冲突，这里只做告警上报，便于第一时间发现。
+ */
+const modelHomes = new Map<string, Set<string>>();
+for (const e of entries) {
+  if (e.category !== "generation") continue;
+  for (const m of e.models) {
+    const k = `${e.mediaType ?? "?"} ${e.path}`;
+    (modelHomes.get(m) ?? modelHomes.set(m, new Set()).get(m)!).add(k);
+  }
+}
+const ambiguousModels = [...modelHomes.entries()]
+  .filter(([, homes]) => homes.size > 1)
+  .map(([model, homes]) => ({ model, homes: [...homes].sort() }));
+
 const crossCheck = {
   unregisteredOnDisk: specFiles.filter((f) => !registered.has(f)),
   registeredButMissing: [...registered].filter((f) => !filesOnDisk.has(f)).sort(),
+  ambiguousModels,
 };
 
 mkdirSync(OUT_DIR, { recursive: true });
@@ -293,3 +313,7 @@ if (otherEntries.length)
   );
 console.log(`交叉核对 — 磁盘存在但 docs.json 未注册 (${crossCheck.unregisteredOnDisk.length}): ${crossCheck.unregisteredOnDisk.join(", ") || "无"}`);
 console.log(`交叉核对 — docs.json 注册但磁盘缺失 (${crossCheck.registeredButMissing.length}): ${crossCheck.registeredButMissing.join(", ") || "无"}`);
+if (ambiguousModels.length) {
+  console.log(`⚠️  同名 model 跨 mediaType/path 出现 (${ambiguousModels.length})——运行时会无声取其一，请核对：`);
+  for (const a of ambiguousModels) console.log(`    ${a.model}: ${a.homes.join(" | ")}`);
+}

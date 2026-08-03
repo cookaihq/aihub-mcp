@@ -1,6 +1,6 @@
 /** 注册 MCP 工具到 server。 */
 import { createWriteStream } from "node:fs";
-import { mkdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
@@ -39,6 +39,19 @@ const GEN_PATH: Record<MediaType, string> = {
 };
 
 /**
+ * catalog 查不到该模型时的兜底端点。
+ *
+ * Suno 走单数 /v1/audio/generations。catalog 里目前只收录了 suno-v4，而 Suno 版本迭代
+ * 通常早于文档站 spec 更新——新版本（suno-v5 等）在 catalog 里查不到，只靠 GEN_PATH
+ * 会被送到复数端点而 404。因此保留模型名判断作为兜底，但它只在 catalog 无记录时生效，
+ * 不与 catalog 竞争。
+ */
+function fallbackPath(media: MediaType, model: string): string {
+  if (media === "audio" && /^suno/i.test(normalizeModelId(model).base)) return "/v1/audio/generations";
+  return GEN_PATH[media];
+}
+
+/**
  * 各媒体类型默认等待秒数。video 取 0 是刻意的：视频生成本就是分钟级，
  * 默认等待只会与客户端 60s 量级的工具超时赛跑——一旦被掐断，任务已提交、
  * 额度已预扣，而含 task_id 的返回体永远送不到调用方。视频一律先拿 task_id。
@@ -67,11 +80,16 @@ function cachedLoader<T>(load: () => Promise<T>, ttlOf: (v: T) => number): () =>
   let entry: { at: number; ttl: number; value: Promise<T> } | null = null;
   return () => {
     if (entry && Date.now() - entry.at < entry.ttl) return entry.value;
+    // in-flight 期间 ttl 取无穷大，让并发调用共享同一个请求
     const fresh = { at: Date.now(), ttl: Number.MAX_SAFE_INTEGER, value: load() };
     entry = fresh;
     fresh.value.then(
       (v) => {
-        if (entry === fresh) fresh.ttl = ttlOf(v);
+        if (entry !== fresh) return;
+        // at 必须在 settle 时重新计时：失败一轮可能耗时几十秒（含重试退避），
+        // 若沿用发起时刻，10s 的失败负缓存会一出生就过期，等于没有负缓存。
+        fresh.at = Date.now();
+        fresh.ttl = ttlOf(v);
       },
       () => {
         if (entry === fresh) entry = null;
@@ -184,11 +202,29 @@ export async function downloadToFile(
       },
     });
     await mkdir(dirname(outPath), { recursive: true });
-    await pipeline(
-      Readable.fromWeb(res.body as WebReadableStream<Uint8Array>),
-      meter,
-      createWriteStream(outPath),
-    );
+    /*
+     * 先写 .part 再 rename：流式写入中途失败（连接断开、停滞超时）时，pipeline 只会
+     * destroy 流，不会删掉已创建的文件。若直接写 outPath，失败后目标路径上会躺着一个
+     * 截断文件，调用方按路径读到的是坏数据——而产物 URL 24 小时失效，重试未必救得回来。
+     * 写临时文件还能避免失败时覆盖掉同名的旧文件。
+     */
+    const partPath = `${outPath}.part`;
+    try {
+      await pipeline(
+        Readable.fromWeb(res.body as WebReadableStream<Uint8Array>),
+        meter,
+        createWriteStream(partPath),
+      );
+      // 有 content-length 时校验完整性：干净关闭但内容不全的代理不会报错，只会给出短文件
+      const declared = Number(res.headers.get("content-length"));
+      if (Number.isFinite(declared) && declared > 0 && bytes !== declared) {
+        throw new Error(`下载不完整：声明 ${declared} 字节，实收 ${bytes} 字节: ${url}`);
+      }
+      await rename(partPath, outPath);
+    } catch (e) {
+      await rm(partPath, { force: true });
+      throw e;
+    }
     return { path: outPath, bytes };
   } finally {
     clearTimeout(timer);
@@ -207,7 +243,22 @@ async function submitAndMaybeWait(
   if (waitSeconds <= 0 || submit.status === "completed" || submit.status === "failed") {
     return taskResult(submit, shapeTask(submit), inlineImages);
   }
-  const task = await client.pollTask(submit.id, waitSeconds);
+  /*
+   * 提交已成功 = 任务已创建、额度已预扣。此后轮询失败绝不能让异常冒泡成一条纯错误——
+   * 那样 task_id 就永久丢失，调用方既拿不到结果也无法用 get_task 找回，钱照扣。
+   */
+  let task: TaskResponse;
+  try {
+    task = await client.pollTask(submit.id, waitSeconds);
+  } catch (e) {
+    return json({
+      task_id: submit.id,
+      status: "unknown",
+      wait_result: "poll-failed",
+      poll_error: e instanceof Error ? e.message : String(e),
+      note: `任务已提交成功（额度已预扣），但等待结果时查询失败。任务很可能仍在进行，请用 get_task("${submit.id}") 或 wait_for_task("${submit.id}") 取回结果。`,
+    });
+  }
   const shaped = shapeTask(task);
   if (task.status !== "completed" && task.status !== "failed") {
     return json({ ...shaped, note: `任务仍在进行，已等待 ${waitSeconds}s。用 get_task("${task.id}") 或 wait_for_task("${task.id}") 继续。` });
@@ -230,7 +281,19 @@ async function llmSubmitAndWait(
       note: `已异步提交。用 get_task("${submit.id}") 或 wait_for_task 取回结果（results[0] 为 ChatCompletion）。`,
     });
   }
-  const task = await client.pollTask(submit.id, waitSeconds);
+  // 同 submitAndMaybeWait：提交已计费，轮询失败必须交还 task_id
+  let task: TaskResponse;
+  try {
+    task = await client.pollTask(submit.id, waitSeconds);
+  } catch (e) {
+    return json({
+      task_id: submit.id,
+      status: "unknown",
+      wait_result: "poll-failed",
+      poll_error: e instanceof Error ? e.message : String(e),
+      note: `任务已提交成功（额度已预扣），但等待结果时查询失败。请用 get_task("${submit.id}") 或 wait_for_task("${submit.id}") 取回结果。`,
+    });
+  }
   if (task.status === "completed") {
     const { text, completion } = AihubmaxClient.llmText(task);
     return json({ task_id: task.id, status: task.status, model: task.model, text, usage: completion?.usage });
@@ -346,10 +409,11 @@ function exampleValue(p: ParamSpec): unknown {
   switch (p.type) {
     case "string":
       return "<string>";
+    // 空数组/空对象同样是「看起来合法」的值，照抄提交一样 422，且比 <number> 更难察觉
     case "array":
-      return [];
+      return [`<${p.items ?? "item"}>`];
     case "object":
-      return {};
+      return { "<key>": "<value>" };
     default:
       return `<${p.type ?? "value"}>`;
   }
@@ -618,8 +682,8 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
               ),
             );
           }
-          // 端点以 catalog 的 path 为准（describe_model 展示的也是它），硬编码表只作兜底
-          const path = resolved?.entry.path ?? GEN_PATH[media];
+          // 端点以 catalog 的 path 为准（describe_model 展示的也是它），查不到才走兜底
+          const path = resolved?.entry.path ?? fallbackPath(media, model);
           const body = { ...extra, model };
           const inline = media === "image" && (inline_image ?? true);
           return await submitAndMaybeWait(client, path, body, wait_seconds ?? DEFAULT_WAIT[media], inline);
