@@ -361,6 +361,7 @@ function renderParams(specs: ParamSpec[]) {
     name: p.name,
     type: p.items ? `${p.type ?? "array"}<${p.items}>` : p.type,
     required: p.required,
+    ...(p.conditional ? { conditionally_required: "仅在某种调用模式下必填，与其他模式的必填项互斥" } : {}),
     ...(p.enum ? { enum: p.enum } : {}),
     ...(p.default !== undefined ? { default: p.default } : {}),
     ...(p.description ? { description: p.description } : {}),
@@ -550,6 +551,13 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
           supported_endpoint_types: liveModel?.supported_endpoint_types ?? null,
           pricing: pricingInfo,
           required_params: entry.requiredParams,
+          ...(entry.conditionalRequiredParams?.length
+            ? {
+                conditionally_required_params: entry.conditionalRequiredParams,
+                conditionally_required_note:
+                  "这些参数分属不同调用模式（如 text-to-video vs image-to-video），互斥，不要同时传；示例请求里只填了所有模式共同必填的参数。",
+              }
+            : {}),
           params: renderParams(entry.paramSpecs),
           // 与 generate_* 的入参形状一致：model 单独传，其余放 params
           example_request: { model, params },

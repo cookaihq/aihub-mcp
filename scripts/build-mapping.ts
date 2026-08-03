@@ -10,6 +10,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { normalizeModelId } from "../src/modelId.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const catalog = JSON.parse(readFileSync(join(root, "catalog", "catalog.zh.json"), "utf8")) as {
@@ -19,15 +20,6 @@ const key = process.env.AIHUB_API_KEY;
 if (!key) throw new Error("需要 AIHUB_API_KEY 才能拉取 /v1/models");
 
 const baseUrl = process.env.AIHUB_BASE_URL ?? "https://api.aihubmax.com";
-
-/** 归一化 live id：剥掉 provider 前缀（google/）与变体方括号（[fast|audio]），供 family 级匹配。 */
-function normalizeLive(id: string): { base: string; variants: string[] } {
-  const noPrefix = id.includes("/") ? id.slice(id.indexOf("/") + 1) : id;
-  const m = /^([^[]+)(?:\[([^\]]*)\])?$/.exec(noPrefix);
-  const base = (m?.[1] ?? noPrefix).trim();
-  const variants = (m?.[2] ?? "").split("|").map((v) => v.trim()).filter(Boolean);
-  return { base, variants };
-}
 
 // catalog 侧：生成端点的 model → 条目
 const genEntries = catalog.entries.filter((e) => e.category === "generation");
@@ -40,15 +32,24 @@ for (const e of genEntries) {
 // family → catalog models（用归一化 base 索引，供近似匹配）
 const catalogByBase = new Map<string, string[]>();
 for (const model of catalogModels.keys()) {
-  const { base } = normalizeLive(model);
+  const { base } = normalizeModelId(model);
   const arr = catalogByBase.get(base) ?? [];
   arr.push(model);
   catalogByBase.set(base, arr);
 }
 
 const res = await fetch(`${baseUrl}/v1/models`, { headers: { Authorization: `Bearer ${key}` } });
+// 必须查状态：401/500 的响应体没有 data 字段，会静默变成空表并覆盖掉已提交的产物
+if (!res.ok) {
+  throw new Error(
+    `拉取 ${baseUrl}/v1/models 失败：HTTP ${res.status}。响应前 200 字符：${(await res.text()).slice(0, 200)}`,
+  );
+}
 const liveJson = (await res.json()) as { data?: { id: string }[] };
 const liveIds = (liveJson.data ?? []).map((m) => m.id).sort();
+if (liveIds.length === 0) {
+  throw new Error("/v1/models 返回 0 个模型，拒绝用空表覆盖 catalog/mapping.json 与 docs/model-mapping.md。");
+}
 
 type MatchType = "exact" | "family" | "none";
 interface Row {
@@ -67,7 +68,7 @@ for (const live of liveIds) {
     rows.push({ live, catalogModel: live, catalogFile: c.file, mediaType: c.mediaType, matchType: "exact" });
     continue;
   }
-  const { base, variants } = normalizeLive(live);
+  const { base, variants } = normalizeModelId(live);
   const famModels = catalogByBase.get(base);
   if (famModels && famModels.length > 0) {
     const c = catalogModels.get(famModels[0]!)!;
@@ -133,7 +134,7 @@ const md: string[] = [
   "",
   "| live id | 归一化 family | catalog 文件 | 备注 |",
   "|---|---|---|---|",
-  ...family.map((r) => `| \`${r.live}\` | \`${normalizeLive(r.live).base}\` | ${r.catalogFile} | ${r.note ?? ""} |`),
+  ...family.map((r) => `| \`${r.live}\` | \`${normalizeModelId(r.live).base}\` | ${r.catalogFile} | ${r.note ?? ""} |`),
   "",
   "## catalog 有、当前 key 未开通（文档可见但不可调用）",
   "",

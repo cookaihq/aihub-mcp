@@ -4,18 +4,27 @@
  *
  * 权威源是磁盘 spec 文件；docs.json 仅作导航映射核对（两者已知存在少量不一致）。
  *
- * 用法：npm run build-catalog  （可用 MINTLIFY_DIR 环境变量覆盖文档站源码路径）
+ * 用法：MINTLIFY_DIR=/path/to/mintlify npm run build-catalog
  */
-import { readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const MINTLIFY_DIR =
-  process.env.MINTLIFY_DIR ??
-  "/Users/zhao/Documents/workspace/Obsidian/aihub/101.api_docs/mintlify";
+// 不设默认值：仓库要公开分发，硬编码某台机器的私人路径既泄漏路径，
+// 又会让其他人拿到一条指向不存在目录的 ENOENT，而不是「请设置 MINTLIFY_DIR」。
+const MINTLIFY_DIR = process.env.MINTLIFY_DIR;
+if (!MINTLIFY_DIR) {
+  throw new Error(
+    "需要 MINTLIFY_DIR：指向 aihubmax 文档站源码目录（其下应有 openapi/zh/*.json 与 docs.json）。\n" +
+      "用法：MINTLIFY_DIR=/path/to/mintlify npm run build-catalog",
+  );
+}
 const LANG = "zh";
 const SPEC_DIR = join(MINTLIFY_DIR, "openapi", LANG);
 const DOCS_JSON = join(MINTLIFY_DIR, "docs.json");
+for (const [label, p] of [["openapi 目录", SPEC_DIR], ["docs.json", DOCS_JSON]] as const) {
+  if (!existsSync(p)) throw new Error(`MINTLIFY_DIR 下找不到${label}：${p}`);
+}
 const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "catalog");
 const SPEC_BASE_URL = `https://docs.aihubmax.com/openapi/${LANG}/`;
 
@@ -25,6 +34,8 @@ interface ParamSpec {
   name: string;
   type: string | null;
   required: boolean;
+  /** true 表示只在部分变体下必填。 */
+  conditional?: boolean;
   enum?: (string | number | boolean)[];
   default?: unknown;
   description?: string;
@@ -45,6 +56,8 @@ interface CatalogEntry {
   modelSource: "enum" | "const" | "default" | "none";
   requestContentTypes: string[];
   requiredParams: string[];
+  /** 仅在某些 oneOf/anyOf 变体下必填的参数（互斥项，不能同时照抄）。 */
+  conditionalRequiredParams?: string[];
   params: string[];
   paramSpecs: ParamSpec[];
   registeredInDocsJson: boolean;
@@ -92,7 +105,11 @@ function resolveRef(spec: JsonObject, ref: string): JsonObject | null {
   return typeof node === "object" && node !== null ? (node as JsonObject) : null;
 }
 
-/** 展开 $ref / allOf / oneOf / anyOf，收集所有可能的请求体属性定义（oneOf 各变体取并集）。 */
+/**
+ * 展开 $ref / allOf / oneOf / anyOf，收集所有可能的请求体属性定义。
+ *
+ * 属性定义取并集（供参数说明），但 required 不能取并集——见下方 requiredSome/required 的处理。
+ */
 function flattenSchemas(spec: JsonObject, schema: unknown, depth = 0): JsonObject[] {
   if (depth > 6 || typeof schema !== "object" || schema === null) return [];
   const s = schema as JsonObject;
@@ -170,11 +187,21 @@ for (const file of specFiles) {
       );
       const { models, source } = extractModels(schemas);
       const params = new Set<string>();
-      const required = new Set<string>();
       for (const s of schemas) {
         for (const k of Object.keys((s.properties as JsonObject) ?? {})) params.add(k);
-        for (const r of (s.required as unknown[]) ?? []) if (typeof r === "string") required.add(r);
       }
+      /*
+       * oneOf/anyOf 的语义是「N 选一」，各变体的必填项通常互斥（如 text-to-video 必填
+       * prompt、image-to-video 必填 image_url）。跨变体取并集会把互斥项全标成必填，
+       * describe_model 的示例就会同时塞两个，提交必然 422。
+       * 因此区分：required = 所有变体都必填（照抄安全）；conditional = 仅某些变体必填。
+       */
+      const perVariantRequired = schemas.map(
+        (s) => new Set(((s.required as unknown[]) ?? []).filter((r): r is string => typeof r === "string")),
+      );
+      const requiredSome = new Set(perVariantRequired.flatMap((s) => [...s]));
+      const required = new Set([...requiredSome].filter((r) => perVariantRequired.every((s) => s.has(r))));
+      const conditionalRequired = [...requiredSome].filter((r) => !required.has(r)).sort();
       // 合并各变体的属性定义为一份参数 Schema（同名属性取首个非空定义）
       const propDefs = new Map<string, JsonObject>();
       for (const s of schemas) {
@@ -193,6 +220,7 @@ for (const file of specFiles) {
           name,
           type: typeof def.type === "string" ? def.type : null,
           required: required.has(name),
+          ...(conditionalRequired.includes(name) ? { conditional: true as const } : {}),
           ...(enumVals ? { enum: enumVals } : {}),
           ...(typeof def.default !== "undefined" ? { default: def.default } : {}),
           ...(desc ? { description: desc.length > 300 ? desc.slice(0, 300) + "…" : desc } : {}),
@@ -217,6 +245,7 @@ for (const file of specFiles) {
         modelSource: source,
         requestContentTypes,
         requiredParams: [...required].sort(),
+        ...(conditionalRequired.length ? { conditionalRequiredParams: conditionalRequired } : {}),
         params: [...params].sort(),
         paramSpecs,
         registeredInDocsJson: registered.has(file),

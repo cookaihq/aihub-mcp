@@ -7,7 +7,10 @@ import { normalizeModelId } from "./modelId.js";
 export interface ParamSpec {
   name: string;
   type: string | null;
+  /** 所有请求变体都必填。示例请求只会填这类参数。 */
   required: boolean;
+  /** 仅在部分 oneOf/anyOf 变体下必填（与其他变体的必填项互斥，不能同时传）。 */
+  conditional?: boolean;
   enum?: (string | number | boolean)[];
   default?: unknown;
   description?: string;
@@ -28,6 +31,8 @@ export interface CatalogEntry {
   modelSource: "enum" | "const" | "default" | "none";
   requestContentTypes: string[];
   requiredParams: string[];
+  /** 仅在某些请求变体下必填的参数（互斥项，不能同时照抄）。 */
+  conditionalRequiredParams?: string[];
   params: string[];
   paramSpecs: ParamSpec[];
   registeredInDocsJson: boolean;

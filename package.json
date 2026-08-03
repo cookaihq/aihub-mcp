@@ -23,7 +23,8 @@
     "verify": "tsx scripts/verify-e2e.ts",
     "typecheck": "tsc --noEmit",
     "prepare": "npm run build",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "test": "tsx scripts/test-offline.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
