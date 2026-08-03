@@ -1,6 +1,10 @@
 /** 注册 MCP 工具到 server。 */
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join } from "node:path";
+import { Readable, Transform } from "node:stream";
+import type { ReadableStream as WebReadableStream } from "node:stream/web";
+import { pipeline } from "node:stream/promises";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
@@ -85,9 +89,56 @@ function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
 }
 
-function errorResult(e: unknown) {
+/** 错误结果。context 用于把 task_id 等「丢了就找不回」的线索一并交还调用方。 */
+function errorResult(e: unknown, context?: string) {
   const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e);
-  return { isError: true, content: [{ type: "text" as const, text: msg }] };
+  return { isError: true, content: [{ type: "text" as const, text: context ? `${msg}\n${context}` : msg }] };
+}
+
+/** 资产下载的停滞超时：这段时间内没有新字节即判定卡死。用停滞判定而非总时长上限，避免大文件被误杀。 */
+const ASSET_STALL_MS = 60_000;
+/** 上传走 base64 JSON 体，没有流式通道，只能限体积。 */
+const UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
+
+/**
+ * 流式下载到本地文件，返回实际写入字节数。
+ *
+ * 必须流式：产物可能是几百 MB 的视频，整体 arrayBuffer 会 OOM 并拖垮整个 server 进程。
+ * resolvePath 在拿到响应头后调用，以便从 content-type 推断文件名。
+ */
+export async function downloadToFile(
+  url: string,
+  resolvePath: (contentType: string | null) => string,
+): Promise<{ path: string; bytes: number }> {
+  const ctrl = new AbortController();
+  let timer = setTimeout(() => ctrl.abort(), ASSET_STALL_MS);
+  const resetStall = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => ctrl.abort(), ASSET_STALL_MS);
+  };
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) throw new Error(`下载失败 HTTP ${res.status}: ${url}`);
+    if (!res.body) throw new Error(`下载失败：响应无 body: ${url}`);
+    const outPath = resolvePath(res.headers.get("content-type"));
+    let bytes = 0;
+    const meter = new Transform({
+      transform(chunk: Buffer, _enc, cb) {
+        bytes += chunk.length;
+        resetStall();
+        cb(null, chunk);
+      },
+    });
+    await mkdir(dirname(outPath), { recursive: true });
+    await pipeline(
+      Readable.fromWeb(res.body as WebReadableStream<Uint8Array>),
+      meter,
+      createWriteStream(outPath),
+    );
+    return { path: outPath, bytes };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** 提交生成 + 可选等待。返回精简任务视图；图像成功时附带内联图像块。 */
@@ -172,6 +223,7 @@ function urlFilename(url: string, contentType: string | null, index: number): st
 
 const INLINE_IMAGE_MAX_BYTES = 1_500_000; // 超过则只回 URL，不内联
 const INLINE_IMAGE_MAX_COUNT = 4;
+const INLINE_IMAGE_TIMEOUT_MS = 15_000;
 const IMAGE_MIME = /^image\//;
 
 /** 从任务结果里挑出图片 URL。 */
@@ -197,10 +249,16 @@ async function imageContentBlocks(
   const blocks = await Promise.all(
     urls.map(async (url) => {
       try {
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: AbortSignal.timeout(INLINE_IMAGE_TIMEOUT_MS) });
         if (!res.ok) return null;
         const mimeType = res.headers.get("content-type") ?? "image/png";
-        if (!IMAGE_MIME.test(mimeType)) return null;
+        const declared = Number(res.headers.get("content-length"));
+        // 先按 content-length 判定，避免为一张必然被丢弃的大图白下载一整遍
+        const tooBig = Number.isFinite(declared) && declared > INLINE_IMAGE_MAX_BYTES;
+        if (!IMAGE_MIME.test(mimeType) || tooBig) {
+          await res.body?.cancel();
+          return null;
+        }
         const buf = Buffer.from(await res.arrayBuffer());
         if (buf.length > INLINE_IMAGE_MAX_BYTES) return null;
         return { type: "image" as const, data: buf.toString("base64"), mimeType };
@@ -422,7 +480,6 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
     async ({ task_id, timeout_seconds, sync_upstream, inline_image }, extra) => {
       try {
         const budget = timeout_seconds ?? 300;
-        const deadline = Date.now() + budget * 1000;
         const progressToken = extra?._meta?.progressToken;
         const notify = async (task: TaskResponse) => {
           if (progressToken === undefined) return;
@@ -440,20 +497,15 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
             /* 客户端不支持进度通知则忽略 */
           }
         };
-        let task = await client.getTask(task_id, sync_upstream ?? false);
-        await notify(task);
-        while (task.status !== "completed" && task.status !== "failed" && Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 5000));
-          task = await client.getTask(task_id, sync_upstream ?? false);
-          await notify(task);
-        }
+        const task = await client.pollTask(task_id, budget, sync_upstream ?? false, notify);
         const shaped = shapeTask(task);
         if (task.status !== "completed" && task.status !== "failed") {
           return json({ ...shaped, wait_result: "still-running", note: `已等待 ${budget}s 仍未完成，可再次调用 wait_for_task 续等。` });
         }
         return await taskResult(task, shaped, inline_image ?? true);
       } catch (e) {
-        return errorResult(e);
+        // 任务已提交（可能已计费），失败时必须把 task_id 交还，否则调用方彻底失去线索
+        return errorResult(e, `task_id=${task_id}（任务可能仍在进行，可稍后用 get_task 重新查询）`);
       }
     },
   );
@@ -490,23 +542,32 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
           if (urls.length === 0) return errorResult(new Error("任务结果中没有可下载的 url（可能是非文件类结果）。"));
         }
         const saved: { url: string; path: string; bytes: number }[] = [];
+        const failed: { url: string; error: string }[] = [];
         for (let i = 0; i < urls.length; i++) {
           const u = urls[i]!;
-          const res = await fetch(u);
-          if (!res.ok) throw new Error(`下载失败 HTTP ${res.status}: ${u}`);
-          const buf = Buffer.from(await res.arrayBuffer());
-          let outPath: string;
-          if (save_path && urls.length === 1) {
-            outPath = save_path;
-          } else {
-            const fname = urlFilename(u, res.headers.get("content-type"), i);
-            outPath = isAbsolute(save_dir ?? "") ? join(save_dir!, fname) : join(process.cwd(), save_dir ?? "", fname);
+          const resolvePath = (contentType: string | null): string => {
+            if (save_path && urls.length === 1) return save_path;
+            const fname = urlFilename(u, contentType, i);
+            return isAbsolute(save_dir ?? "")
+              ? join(save_dir!, fname)
+              : join(process.cwd(), save_dir ?? "", fname);
+          };
+          // 单个 url 失败不作废其余：产物 URL 24 小时失效，已下好的必须原样报回
+          try {
+            const { path, bytes } = await downloadToFile(u, resolvePath);
+            saved.push({ url: u, path, bytes });
+          } catch (e) {
+            failed.push({ url: u, error: e instanceof Error ? e.message : String(e) });
           }
-          await mkdir(dirname(outPath), { recursive: true });
-          await writeFile(outPath, buf);
-          saved.push({ url: u, path: outPath, bytes: buf.length });
         }
-        return json({ downloaded: saved.length, files: saved });
+        if (saved.length === 0 && failed.length > 0) {
+          return errorResult(new Error(`全部 ${failed.length} 个下载均失败：${failed.map((f) => f.error).join("；")}`));
+        }
+        return json({
+          downloaded: saved.length,
+          files: saved,
+          ...(failed.length ? { failed_count: failed.length, failed } : {}),
+        });
       } catch (e) {
         return errorResult(e);
       }
@@ -563,6 +624,16 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
         if (url) {
           res = await client.uploadUrl(url, file_name);
         } else if (path) {
+          const info = await stat(path);
+          if (info.size > UPLOAD_MAX_BYTES) {
+            return errorResult(
+              new Error(
+                `文件过大（${(info.size / 1048576).toFixed(1)}MB，上限 ${UPLOAD_MAX_BYTES / 1048576}MB）：` +
+                  `上传端点只接受 base64 JSON 体，大文件整体进内存会拖垮 server 进程。` +
+                  `请改用 url 模式（把文件放到可公网访问的地址后传 url），或先压缩/切分。`,
+              ),
+            );
+          }
           const buf = await readFile(path);
           res = await client.uploadBase64(buf.toString("base64"), file_name ?? basename(path));
         } else {
