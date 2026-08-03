@@ -59,14 +59,39 @@ export function loadCatalog(): Catalog {
 
 /** 仅返回 4 个生成端点的条目（image/video/audio/document）。 */
 export function generationEntries(): CatalogEntry[] {
-  return loadCatalog().entries.filter((e) => e.category === "generation");
+  return genIndex().entries;
+}
+
+/**
+ * 生成条目的索引，首次访问时构建一次。
+ *
+ * resolveEntry 会对 /v1/models 返回的每个 id（实测 295 个）各查一次，
+ * 逐次全表扫描会变成近 600 遍 filter，因此按 model 预先建表。
+ */
+interface GenIndex {
+  entries: CatalogEntry[];
+  /** model → 该模型对应的、参数最丰富的条目。 */
+  byModel: Map<string, CatalogEntry>;
+}
+let genIndexCache: GenIndex | null = null;
+function genIndex(): GenIndex {
+  if (genIndexCache) return genIndexCache;
+  const entries = loadCatalog().entries.filter((e) => e.category === "generation");
+  const byModel = new Map<string, CatalogEntry>();
+  for (const e of entries) {
+    for (const model of e.models) {
+      // 一个模型可能出现在多个 spec 文件（系列文件 + 变体文件）；留参数最丰富的那条
+      const cur = byModel.get(model);
+      if (!cur || e.params.length > cur.params.length) byModel.set(model, e);
+    }
+  }
+  genIndexCache = { entries, byModel };
+  return genIndexCache;
 }
 
 /** 一个模型可能出现在多个 spec 文件（如系列文件 + 变体文件）；返回参数最丰富的那条。 */
 export function findEntryByModel(model: string): CatalogEntry | undefined {
-  const matches = generationEntries().filter((e) => e.models.includes(model));
-  if (matches.length === 0) return undefined;
-  return matches.sort((a, b) => b.params.length - a.params.length)[0];
+  return genIndex().byModel.get(model);
 }
 
 /**

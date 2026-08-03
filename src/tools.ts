@@ -289,7 +289,8 @@ function imageUrls(task: TaskResponse | SubmitResponse): string[] {
     if (r && typeof r === "object" && typeof (r as { url?: unknown }).url === "string") {
       const url = (r as { url: string }).url;
       const ct = (r as { content_type?: string }).content_type;
-      if ((ct && IMAGE_MIME.test(ct)) || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url)) urls.push(url);
+      // 扩展名判定要容忍 query 与 #fragment；无扩展名的签名 URL 靠 content_type 兜底
+      if ((ct && IMAGE_MIME.test(ct)) || /\.(png|jpe?g|webp|gif)([?#]|$)/i.test(url)) urls.push(url);
     }
   }
   return urls;
@@ -402,7 +403,8 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
           });
         }
 
-        const mediaFilter = media_type as MediaType | undefined;
+        // media_type === "llm" 已在上面提前返回，剩下的必然是 4 个媒体类型之一
+        const mediaFilter: MediaType | undefined = media_type;
         const [live, price] = await Promise.all([liveModels(client), pricing(client)]);
 
         if (!live.ok) {
@@ -786,7 +788,10 @@ export function registerTools(server: McpServer, client: AihubmaxClient): void {
           used: b.used,
           remaining: b.unlimited ? "unlimited" : b.remaining,
           unlimited: b.unlimited,
+          hard_limit_raw: b.hardLimit,
           unit_note: "站点展示单位（USD/CNY/tokens 由站点配置决定）",
+          unlimited_note:
+            "unlimited 由 hard_limit 是否达到 New API 的 sentinel 值 1e8 判定；hard_limit_raw 为原始值，可据此自行判别。",
           access_until: b.accessUntil || null,
         });
       } catch (e) {

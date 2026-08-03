@@ -87,6 +87,12 @@ const MIN_RETRY_BUDGET_MS = 1_000;
 
 const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+/**
+ * New API 对 UnlimitedQuota 的 token 返回的 hard_limit sentinel（1e8）。
+ * 不是真实额度值——真实额度达到这个量级的 key 会被误判为无限，因此 getBilling 同时回传 hardLimit 原值。
+ */
+const UNLIMITED_QUOTA_SENTINEL = 100_000_000;
+
 /** 轮询间隔（文档建议值）。 */
 const POLL_INTERVAL_MS = 5_000;
 /** 单次任务查询超时：必须远小于轮询间隔的量级，避免一次卡死吃光整段等待预算。 */
@@ -401,25 +407,28 @@ export class AihubmaxClient {
     used: number;
     remaining: number;
     unlimited: boolean;
+    hardLimit: number;
     accessUntil: number;
-    raw: { subscription: unknown; usage: unknown };
   }> {
-    const sub = await this.request<{
-      hard_limit_usd?: number;
-      soft_limit_usd?: number;
-      access_until?: number;
-    }>("GET", "/dashboard/billing/subscription");
-    const usage = await this.request<{ total_usage?: number }>("GET", "/dashboard/billing/usage");
+    // 两个端点互不依赖，并行省一个 RTT
+    const [sub, usage] = await Promise.all([
+      this.request<{ hard_limit_usd?: number; soft_limit_usd?: number; access_until?: number }>(
+        "GET",
+        "/dashboard/billing/subscription",
+      ),
+      this.request<{ total_usage?: number }>("GET", "/dashboard/billing/usage"),
+    ]);
     const total = sub.hard_limit_usd ?? 0;
     const used = (usage.total_usage ?? 0) / 100;
-    const unlimited = total >= 100_000_000;
+    const unlimited = total >= UNLIMITED_QUOTA_SENTINEL;
     return {
       total,
       used,
       remaining: unlimited ? Number.POSITIVE_INFINITY : total - used,
       unlimited,
+      // 原始上限一并回传：万一某个 key 的真实额度恰好触到 sentinel，调用方能自行判别
+      hardLimit: total,
       accessUntil: sub.access_until ?? 0,
-      raw: { subscription: sub, usage },
     };
   }
 
