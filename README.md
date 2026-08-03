@@ -32,16 +32,16 @@ MCP server for the AihubMax media generation API — <https://docs.aihubmax.com>
     "aihub": {
       "command": "npx",
       "args": ["-y", "github:cookaihq/aihub-mcp"],
-      "env": { "AIHUBMAX_API_KEY": "sk-你的key" }
+      "env": { "AIHUB_API_KEY": "sk-你的key" }
     }
   }
 }
 ```
 
 > 当前走 GitHub 分发（npm 发布后再改为 `"aihub-mcp"`）。仓库 `github:cookaihq/aihub-mcp`；首次拉取时 `npx` 会自动执行 `prepare` 编译。
-> 本地开发也可把 `command`/`args` 指向 `node /绝对路径/dist/index.js`，或 `AIHUBMAX_API_KEY=sk-... npm run dev`。
+> 本地开发也可把 `command`/`args` 指向 `node /绝对路径/dist/index.js`，或 `AIHUB_API_KEY=sk-... npm run dev`。
 
-Key 也可用 `--api-key sk-...` 传入；base URL 可用 `AIHUBMAX_BASE_URL` 覆盖。
+Key 也可用 `--api-key sk-...` 传入；base URL 可用 `AIHUB_BASE_URL` 覆盖。
 
 ## 开发
 
@@ -50,7 +50,7 @@ npm install
 npm run build-catalog          # 从 mintlify 源码构建 catalog（可用 MINTLIFY_DIR 覆盖路径）
 npm run typecheck
 npm run build                  # 输出 dist/
-AIHUBMAX_API_KEY=sk-... npm run verify   # 端到端打真实 API 验收（会产生少量生成费用）
+AIHUB_API_KEY=sk-... npm run verify   # 端到端打真实 API 验收（会产生少量生成费用）
 ```
 
 ## 进度

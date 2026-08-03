@@ -5,7 +5,7 @@
  * 并把无法精确对齐的变体命名（如 google/veo-3.1[fast|audio]）诚实标记为待核实，
  * 不臆造映射。产物：catalog/mapping.json + docs/model-mapping.md。
  *
- * 用法：AIHUBMAX_API_KEY=sk-... tsx scripts/build-mapping.ts
+ * 用法：AIHUB_API_KEY=sk-... tsx scripts/build-mapping.ts
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -15,10 +15,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const catalog = JSON.parse(readFileSync(join(root, "catalog", "catalog.zh.json"), "utf8")) as {
   entries: { file: string; models: string[]; mediaType: string | null; category: string; title: string }[];
 };
-const key = process.env.AIHUBMAX_API_KEY;
-if (!key) throw new Error("需要 AIHUBMAX_API_KEY 才能拉取 /v1/models");
+const key = process.env.AIHUB_API_KEY;
+if (!key) throw new Error("需要 AIHUB_API_KEY 才能拉取 /v1/models");
 
-const baseUrl = process.env.AIHUBMAX_BASE_URL ?? "https://api.aihubmax.com";
+const baseUrl = process.env.AIHUB_BASE_URL ?? "https://api.aihubmax.com";
 
 /** 归一化 live id：剥掉 provider 前缀（google/）与变体方括号（[fast|audio]），供 family 级匹配。 */
 function normalizeLive(id: string): { base: string; variants: string[] } {

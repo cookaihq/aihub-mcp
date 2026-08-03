@@ -151,7 +151,7 @@ export class AihubmaxClient {
   private hint(status: number, code: string | undefined, message: string): string {
     switch (status) {
       case 401:
-        return `认证失败（401）：API Key 无效或缺失。请检查 AIHUBMAX_API_KEY。原始信息：${message}`;
+        return `认证失败（401）：API Key 无效或缺失。请检查 AIHUB_API_KEY。原始信息：${message}`;
       case 402:
         return `余额不足（402）：请到 AihubMax 控制台充值后重试。原始信息：${message}`;
       case 404:

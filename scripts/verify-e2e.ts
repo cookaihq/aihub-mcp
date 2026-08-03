@@ -1,6 +1,6 @@
 /**
  * M1 端到端验收：用真实 MCP Client 通过 stdio 连接 server，调用各工具打真实 API。
- * 用法：AIHUBMAX_API_KEY=sk-... tsx scripts/verify-e2e.ts
+ * 用法：AIHUB_API_KEY=sk-... tsx scripts/verify-e2e.ts
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -8,8 +8,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const key = process.env.AIHUBMAX_API_KEY;
-if (!key) throw new Error("需要 AIHUBMAX_API_KEY");
+const key = process.env.AIHUB_API_KEY;
+if (!key) throw new Error("需要 AIHUB_API_KEY");
 
 function textOf(r: { content?: { type: string; text?: string }[]; isError?: boolean }): string {
   const t = (r.content ?? []).map((c) => c.text ?? "").join("\n");
@@ -19,7 +19,7 @@ function textOf(r: { content?: { type: string; text?: string }[]; isError?: bool
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: ["--import", "tsx", join(root, "src", "index.ts")],
-  env: { ...process.env, AIHUBMAX_API_KEY: key },
+  env: { ...process.env, AIHUB_API_KEY: key },
 });
 
 const client = new Client({ name: "verify", version: "0.0.1" });

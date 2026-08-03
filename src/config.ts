@@ -8,12 +8,12 @@ export interface Config {
 const DEFAULT_BASE_URL = "https://api.aihubmax.com";
 
 /**
- * 解析配置。key 优先级：--api-key 参数 > AIHUBMAX_API_KEY 环境变量。
- * base URL：AIHUBMAX_BASE_URL 环境变量 > 默认 https://api.aihubmax.com。
+ * 解析配置。key 优先级：--api-key 参数 > AIHUB_API_KEY 环境变量。
+ * base URL：AIHUB_BASE_URL 环境变量 > 默认 https://api.aihubmax.com。
  */
 export function loadConfig(argv: string[] = process.argv.slice(2)): Config {
-  let apiKey = process.env.AIHUBMAX_API_KEY ?? "";
-  let baseUrl = process.env.AIHUBMAX_BASE_URL ?? DEFAULT_BASE_URL;
+  let apiKey = process.env.AIHUB_API_KEY ?? "";
+  let baseUrl = process.env.AIHUB_BASE_URL ?? DEFAULT_BASE_URL;
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
@@ -25,7 +25,7 @@ export function loadConfig(argv: string[] = process.argv.slice(2)): Config {
 
   if (!apiKey) {
     throw new Error(
-      "缺少 API Key。请设置环境变量 AIHUBMAX_API_KEY=sk-... 或传入 --api-key sk-...",
+      "缺少 API Key。请设置环境变量 AIHUB_API_KEY=sk-... 或传入 --api-key sk-...",
     );
   }
   return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey };
