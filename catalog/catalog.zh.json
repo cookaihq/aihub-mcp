@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-07-16T19:59:46.730Z",
+  "generatedAt": "2026-08-04T02:57:58.577Z",
   "lang": "zh",
   "specBaseUrl": "https://docs.aihubmax.com/openapi/zh/",
   "sourceDir": "/Users/zhao/Documents/workspace/Obsidian/aihub/101.api_docs/mintlify/openapi/zh",
-  "specFileCount": 152,
+  "specFileCount": 151,
   "entries": [
     {
       "file": "claude-format-messages.json",
@@ -2136,7 +2136,7 @@
       "path": "/v1/images/generations",
       "title": "GPT Image 2",
       "summary": "GPT Image 2",
-      "description": "- GPT Image 2 图像生成与编辑模型，支持文生图和图生图\n- 完整版 `gpt-image-2` 暴露 `quality` / `mask_url` / `output_format` / `background`，支持 11 种 preset 和自定义分辨率\n- 精简版 `gpt-image-2-limit` 仅支持基础字段、3 档标准分辨率（`1024x1024` / `1024x1536` / `1536x1024`）和 `num_outputs=1`\n- 异步处理模式，使用返回的任务ID [进行查询](/pages/zh/api-manual/task-management/get-task-detail)\n- 生成的图像链接，有效期为24小时，请尽快保存",
+      "description": "- GPT Image 2 图像生成与编辑模型，支持文生图和图生图\n- 支持 `quality` / `mask_url` / `output_format` / `background`，11 种 preset 和自定义分辨率\n- 异步处理模式，使用返回的任务ID [进行查询](/pages/zh/api-manual/task-management/get-task-detail)\n- 生成的图像链接，有效期为24小时，请尽快保存",
       "category": "generation",
       "mediaType": "image",
       "models": [
@@ -2167,7 +2167,7 @@
           "type": "string",
           "required": true,
           "default": "gpt-image-2",
-          "description": "`gpt-image-2`：完整版，支持 `quality` / `mask_url` / `output_format` / `background` 及 11 种 preset 分辨率和自定义宽高\n`gpt-image-2-limit`：精简版，仅支持 `prompt` / `image_urls` / `num_outputs`（固定 `1`）/ `resolution`（限 3 档）"
+          "description": "`gpt-image-2`：支持 `quality` / `mask_url` / `output_format` / `background` 及 11 种 preset 分辨率和自定义宽高"
         },
         {
           "name": "prompt",
@@ -2184,28 +2184,28 @@
             "opaque"
           ],
           "default": "auto",
-          "description": "背景模式\n\n- `auto` —— 模型自动决定\n- `opaque` —— 不透明背景\n- `transparent` 未暴露（上游不稳定支持）\n- 在 `gpt-image-2` 上**不可与 `mask_url` 同时传入**；如需控制背景，请省略 `mask_url`\n- `gpt-image-2-limit` **不适用**\n\n\n> 非必须不要传这个参数。"
+          "description": "背景模式\n\n- `auto` —— 模型自动决定\n- `opaque` —— 不透明背景\n- `transparent` 未暴露（上游不稳定支持）\n- **不可与 `mask_url` 同时传入**；如需控制背景，请省略 `mask_url`\n\n\n> 非必须不要传这个参数。"
         },
         {
           "name": "image_urls",
           "type": null,
           "required": false,
           "default": null,
-          "description": "参考图 URL 列表（图生图 / 编辑）\n\n- 传入后自动切换到图生图模式\n- 每项支持：公网可访问 URL、`data:image/...` Data URI、裸 Base64\n\n**多图引用提示词约定**（参考图 ≥ 2 张时）：\n\n> 以下规则基于 `gpt-image-2-limit` 的实测；`gpt-image-2` 完整版的行为暂未验证。\n\n- ❌ 不要用 `@图像N` / `@imageN` / `[imageN]` 等命名标记，实测上游不识别会被当普通文本，结果会完全脱离参考图\n- ✅ 推荐写「**第N张图**里的<物理特征描述>」组合，例：`第三张图里戴红帽穿蓝色背带裤的卡…"
+          "description": "参考图 URL 列表（图生图 / 编辑）\n\n- 传入后自动切换到图生图模式\n- 每项支持：公网可访问 URL、`data:image/...` Data URI、裸 Base64\n- 内联 base64（`data:` URI，或 4096 个以上编码字符且解码内容命中已知媒体签名的裸 Base64）会在请求入库与提交上游之前上传文件存储并替换为 URL，不以 base64 原文入库；更短的裸 Base64、或签名不可识别的内容按原样透传，也不做体积校验\n- 上限只作用于内联 base64 项（公网 http(s) URL 不受限）：单项解码后 ≤ 5 MB、单数组内联 ≤ 5 项、单请求合计…"
         },
         {
           "name": "mask_url",
           "type": null,
           "required": false,
           "default": null,
-          "description": "遮罩图 URL（仅图像编辑场景生效）\n\n- 白色区域为允许编辑的区域\n- 尺寸必须与 `image_urls` 的第一张一致\n- 在 `gpt-image-2` 上**不可与 `background` 同时传入**；如需带遮罩编辑，请省略 `background`\n- `gpt-image-2-limit` **不适用**\n\n\n> 非必须不要传这个参数。"
+          "description": "遮罩图 URL（仅图像编辑场景生效）\n\n- 白色区域为允许编辑的区域\n- 尺寸必须与 `image_urls` 的第一张一致\n- **不可与 `background` 同时传入**；如需带遮罩编辑，请省略 `background`\n\n\n> 非必须不要传这个参数。"
         },
         {
           "name": "num_outputs",
           "type": "integer",
           "required": false,
           "default": 1,
-          "description": "单次请求生成的图片数量\n\n- `gpt-image-2`：1–10\n- `gpt-image-2-limit`：**仅支持 `1`**，传入其他值会被路由层拒绝"
+          "description": "单次请求生成的图片数量（1–10）"
         },
         {
           "name": "output_format",
@@ -2217,7 +2217,7 @@
             "webp"
           ],
           "default": "png",
-          "description": "输出图像格式\n\n- `png` —— 无损，默认\n- `jpeg` —— 有损压缩\n- `webp` —— 现代压缩格式\n- `gpt-image-2-limit` **不适用**\n\n\n> 非必须不要传这个参数。"
+          "description": "输出图像格式\n\n- `png` —— 无损，默认\n- `jpeg` —— 有损压缩\n- `webp` —— 现代压缩格式\n\n\n> 非必须不要传这个参数。"
         },
         {
           "name": "quality",
@@ -2229,14 +2229,14 @@
             "high"
           ],
           "default": "high",
-          "description": "图像生成质量档位\n\n- `low` —— 低质量，成本最低\n- `medium` —— 中等质量\n- `high` —— 高质量（默认）\n- `gpt-image-2-limit` **不适用**：精简版不暴露质量档位"
+          "description": "图像生成质量档位\n\n- `low` —— 低质量，成本最低\n- `medium` —— 中等质量\n- `high` —— 高质量（默认）"
         },
         {
           "name": "resolution",
           "type": null,
           "required": false,
           "default": "1024x1024",
-          "description": "输出图像分辨率\n\n**形式 A — 预设字符串（`宽x高`）：**\n- `gpt-image-2`（完整版）可用全部 11 个 preset：\n  - `1024x768` / `768x1024`（0.79 MP）\n  - `1024x1024`（1.05 MP）\n  - `1536x1024` / `1024x1536`（1.57 MP）\n  - `1920x1080` / `1080x1920`（2.07 MP，FHD）\n  - `2560x1440` / `1440x2560`（3.69 MP，QHD）\n  - `3840x2160` / `2160x3840`（8.29 MP，4K）…"
+          "description": "输出图像分辨率\n\n**形式 A — 预设字符串（`宽x高`）**，共 11 个 preset：\n  - `1024x768` / `768x1024`（0.79 MP）\n  - `1024x1024`（1.05 MP）\n  - `1536x1024` / `1024x1536`（1.57 MP）\n  - `1920x1080` / `1080x1920`（2.07 MP，FHD）\n  - `2560x1440` / `1440x2560`（3.69 MP，QHD）\n  - `3840x2160` / `2160x3840`（8.29 MP，4K）\n\n**形式 B — 自定义对象** `{\"wi…"
         }
       ],
       "registeredInDocsJson": true
@@ -5041,7 +5041,7 @@
           "name": "audio_url",
           "type": "string",
           "required": true,
-          "description": "音频源。接受以下两种形式：\n- 公网 HTTP/HTTPS URL\n- `data:audio/<type>;base64,<payload>` data URI（base64 内联）\n\n**各家族音频格式支持**（具体可用模型由渠道配置驱动）：\n- Gemini 家族（如 `gemini-*`）：wav/mp3/aiff/aac/ogg/flac/m4a；整个请求体（prompt + system + 内联文件）≤ 20 MB\n\nbase64 数据不做体积校验，过大可能触发 422。"
+          "description": "音频源。接受以下两种形式：\n- 公网 HTTP/HTTPS URL\n- `data:audio/<type>;base64,<payload>` data URI（base64 内联）\n\n**各家族音频格式支持**（具体可用模型由渠道配置驱动）：\n- Gemini 家族（如 `gemini-*`）：wav/mp3/aiff/aac/ogg/flac/m4a；整个请求体（prompt + system + 内联文件）≤ 20 MB\n\n**内联 base64（仅异步模式，`sync` 省略或为 `false`）**：网关识别为内联媒体的 base64（`data:` URI，或 4096 个以上编…"
         },
         {
           "name": "model",
@@ -5401,7 +5401,7 @@
           "name": "image_urls",
           "type": "array",
           "required": true,
-          "description": "图片源数组（1–10 张）。每个元素接受以下两种形式：\n- 公网 HTTP/HTTPS URL\n- `data:image/<type>;base64,<payload>` data URI（base64 内联）\n\n**模型限制**：上限张数由所选模型对应上游决定；当某模型仅支持单图而请求传入多张时，路由层返回 422 `model_rule_violation`（具体规则维护在 `app/relays/llm_router/model_rules.py`，覆盖渠道配置以外的「模型固有」约束）。\n\nbase64 数据不做体积校验，过大可能触发 422。",
+          "description": "图片源数组（1–10 张）。每个元素接受以下两种形式：\n- 公网 HTTP/HTTPS URL\n- `data:image/<type>;base64,<payload>` data URI（base64 内联）\n\n**模型限制**：上限张数由所选模型对应上游决定；当某模型仅支持单图而请求传入多张时，路由层返回 422 `model_rule_violation`（具体规则维护在 `app/relays/llm_router/model_rules.py`，覆盖渠道配置以外的「模型固有」约束）。\n\n**内联 base64（仅异步模式，`sync` 省略或为 `false`）**：网关识别为内联…",
           "items": "string"
         },
         {
@@ -5459,123 +5459,12 @@
     },
     {
       "file": "llm_async.json",
-      "operationId": "llm-gateway-submit",
-      "method": "POST",
-      "path": "/v1/llm/generations",
-      "title": "LLM Gateway Relay",
-      "summary": "提交 LLM 生成任务（P5 格式）",
-      "description": "- 请求体为 OpenAI Chat Completions 超集（见 `LLMGenerationRequest`）\n- 本端点立即返回任务响应，不等待上游完成；`stream=false` 时后台一次性调用上游并把完整响应写入 task，`stream=true` 时后台流式消费上游，chunks 推 Redis 供 SSE 端点订阅\n- 响应遵循统一任务标准形状：`id` / `object=llm.generation.task` / `type=llm` / `model` / `status=pending` / `progress=0` / `created` / `stream` / `results=null` / `error=null`\n- `stream=true` 时 `stream.url` 指向 SSE 订阅路径；**同时** task.data 会持续累积最终响应，客户端可随时改用 `GET /v1/tasks/{task_id}` 取完整内容\n- 认证使用客户端持有的 new-api Token（`Authorization: Bearer ...`）",
-      "category": "llm-async",
-      "mediaType": "llm",
-      "models": [
-        "claude-opus-4-6",
-        "claude-opus-4-7",
-        "claude-sonnet-4-6",
-        "gemini-3-pro-preview",
-        "gemini-3.1-pro-preview",
-        "gpt-5.4",
-        "kimi-k2.6"
-      ],
-      "modelSource": "enum",
-      "requestContentTypes": [
-        "application/json"
-      ],
-      "requiredParams": [
-        "messages",
-        "model"
-      ],
-      "params": [
-        "max_tokens",
-        "messages",
-        "model",
-        "stop",
-        "stream",
-        "temperature",
-        "top_p"
-      ],
-      "paramSpecs": [
-        {
-          "name": "messages",
-          "type": "array",
-          "required": true,
-          "description": "对话消息数组。`messages[*].content` 可为 string（纯文本）或 array（多模态块）。多模态块 `type` ∈ {`text`, `image_url`, `video_url`, `audio_url`, `file_url`}；不是所有模型都支持所有类型，不支持时返回 422 `unsupported_content_type`。\n\n**Phase 1 声明的 content 类型支持**（Phase 1 未通过 probe 实测验证）：\n| 模型 | text | image_url | video_url | audio_url | file_url |\n…",
-          "items": null
-        },
-        {
-          "name": "model",
-          "type": "string",
-          "required": true,
-          "enum": [
-            "gpt-5.4",
-            "kimi-k2.6",
-            "claude-opus-4-6",
-            "claude-opus-4-7",
-            "claude-sonnet-4-6",
-            "gemini-3-pro-preview",
-            "gemini-3.1-pro-preview"
-          ],
-          "description": "平台模型名，Phase 1 **严格白名单**，未列出的值返回 422 `model_not_supported`。\n\n**家族归属与特殊行为**：\n| 模型 | 家族 | 备注 |\n|---|---|---|\n| `gpt-5.4` | openai-chat | 上游实际为 Azure OpenAI；`max_tokens` 传入时必须 ≥ 16 |\n| `kimi-k2.6` | openai-chat | **thinking 模型**：SSE 正确透传 `delta.reasoning_content`，但 `GET /v1/tasks/{task_id}` 的 `results[0…"
-        },
-        {
-          "name": "max_tokens",
-          "type": "integer",
-          "required": false,
-          "description": "生成 token 上限。家族约束：\n- `gpt-5.4` 传入时必须 ≥ 16，否则 422（Azure 硬约束）\n- Anthropic 家族（`claude-*`）**必填**，缺失时 422\n- `kimi-k2.6` / Gemini 家族可选"
-        },
-        {
-          "name": "stop",
-          "type": null,
-          "required": false,
-          "description": "停止序列。按家族映射（Anthropic: `stop_sequences` / Gemini: `generationConfig.stopSequences`）"
-        },
-        {
-          "name": "stream",
-          "type": "boolean",
-          "required": false,
-          "default": false,
-          "description": "是否流式。\n\n**行为差异：**\n| 值 | Submit 响应 `stream` 字段 | 后台调上游 | SSE 端点 |\n|---|---|---|---|\n| `false` | `null` | 非流式一次性调用 | 不可用 |\n| `true` | `{\"url\": \"/v1/llm/generations/{task_id}/stream\"}` | 流式调用，chunks 转换为 OpenAI chunk 后推 Redis | 可用；同时 task.data 累积完整响应 |"
-        },
-        {
-          "name": "temperature",
-          "type": "number",
-          "required": false,
-          "description": "采样温度。按家族映射到 Anthropic/Gemini 原生字段（Anthropic: `temperature` / Gemini: `generationConfig.temperature`）"
-        },
-        {
-          "name": "top_p",
-          "type": "number",
-          "required": false,
-          "description": "nucleus sampling。按家族映射（Gemini: `generationConfig.topP`）"
-        }
-      ],
-      "registeredInDocsJson": false
-    },
-    {
-      "file": "llm_async.json",
-      "operationId": "llm-gateway-stream",
-      "method": "GET",
-      "path": "/v1/llm/generations/{task_id}/stream",
-      "title": "LLM Gateway Relay",
-      "summary": "订阅任务的 SSE 增量流",
-      "description": "- 仅对 `stream=true` 提交的任务可用\n- 响应 `Content-Type: text/event-stream`\n- 三种事件：`chunk`（逐条增量）、`done`（正常结束）、`error`（异常结束）\n- 每条 `chunk` 的 `data` 是**统一的 OpenAI `chat.completion.chunk` JSON**——Anthropic / Gemini 的家族原生 chunk 由本 relay 转换成 OpenAI chunk 后再推给客户端\n- 通过 `?offset=N` 从第 N 条 chunk 开始接收，支持断线重连。服务端已发送但客户端没收到的 chunks 会被重放\n- Redis 中 chunks 的默认 TTL 由 `settings.LLM_ASYNC_STREAM_TTL_SECONDS` 控制（和 llm_async 共享该配置），超时后 stream 不再可用，应改用 `GET /v1/tasks/{task_id}` 取最终结果\n\n**已知限制**（Phase 1）：\n- 模型 `kimi-k2.6` 为 thin",
-      "category": "llm-async",
-      "mediaType": "llm",
-      "models": [],
-      "modelSource": "none",
-      "requestContentTypes": [],
-      "requiredParams": [],
-      "params": [],
-      "paramSpecs": [],
-      "registeredInDocsJson": false
-    },
-    {
-      "file": "llm_async1.json",
       "operationId": "llm-async-submit",
       "method": "POST",
       "path": "/v1/llm_async/chat/completions",
       "title": "LLM Async Relay",
       "summary": "提交异步 chat/completions 任务",
-      "description": "- 请求体与 OpenAI `POST /v1/chat/completions` 完全兼容；`model` / `messages` / `stream` 以外的字段原样透传给上游，不做白名单校验\n- 端点不做计费，计费由上游 new-api 完成\n- `stream=false`：后台一次性调用上游，task 完成后 `GET /v1/tasks/{task_id}` 返回 `results[0]` 为完整 `ChatCompletion` 响应\n- `stream=true`：后台用 stream 方式调用上游，chunks 实时写入 Redis；响应体额外包含 `stream_url`，客户端可连接 SSE 端点实时消费。同时 task 会持续累积最终响应，页面刷新后仍可通过 `/v1/tasks/{task_id}` 取到完整内容\n- 认证使用客户端持有的 new-api Token（`Authorization: Bearer ...`），该 Token 同时用于入口鉴权和透传到上游",
+      "description": "- 请求体与 OpenAI `POST /v1/chat/completions` 完全兼容；`model` / `messages` / `stream` 以外的字段原样透传给上游，不做白名单校验\n- 端点不做计费，计费由上游 new-api 完成\n- 响应遵循统一任务标准形状：`id` / `object=llm.generation.task` / `type=llm` / `model` / `status=pending` / `progress=0` / `created` / `stream` / `results=null` / `error=null`\n- `stream=false`：后台一次性调用上游，`stream` 字段为 `null`；task 完成后 `GET /v1/tasks/{task_id}` 返回 `results[0]` 为完整 `ChatCompletion` 响应\n- `stream=true`：后台用 stream 方式调用上游，chunks 实时写入 Redis；响应体的 `stream.url` 指向 SSE 订阅路径，客户端可连接该",
       "category": "llm-async",
       "mediaType": "llm",
       "models": [],
@@ -5611,13 +5500,13 @@
           "type": "boolean",
           "required": false,
           "default": false,
-          "description": "是否流式\n\n**行为差异：**\n| 值 | Submit 响应 | 后台调上游 | SSE 端点 |\n|---|---|---|---|\n| `false` | 不含 `stream_url` | 非流式一次性调用 | 不可用 |\n| `true` | 含 `stream_url` | 流式调用，chunks 写 Redis | 可用；同时 task.data 累积完整响应 |"
+          "description": "是否流式\n\n**行为差异：**\n| 值 | Submit 响应 `stream` 字段 | 后台调上游 | SSE 端点 |\n|---|---|---|---|\n| `false` | `null` | 非流式一次性调用 | 不可用 |\n| `true` | `{\"url\": \"/v1/llm_async/stream/{task_id}\"}` | 流式调用，chunks 写 Redis | 可用；同时 task.data 累积完整响应 |"
         }
       ],
       "registeredInDocsJson": false
     },
     {
-      "file": "llm_async1.json",
+      "file": "llm_async.json",
       "operationId": "llm-async-stream",
       "method": "GET",
       "path": "/v1/llm_async/stream/{task_id}",
@@ -13261,7 +13150,6 @@
       "kling-v2-6-video.json",
       "live-avatar.json",
       "llm_async.json",
-      "llm_async1.json",
       "sora-2-pro-remix.json",
       "vidu-q3-image-to-video.json",
       "vidu-q3-reference-to-video.json",
@@ -13278,7 +13166,8 @@
       "veo-3.1-extend-fast.json",
       "veo-3.1-fast.json",
       "vidu-q3.json"
-    ]
+    ],
+    "ambiguousModels": []
   },
   "parseFailures": []
 }
